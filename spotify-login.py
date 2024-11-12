@@ -13,7 +13,7 @@ app.secret_key = os.urandom(24)
 
 # Spotify API credentials
 REDIRECT_URI = 'http://localhost:8888/callback'
-SCOPE = 'user-read-private user-read-email user-library-read user-top-read'
+SCOPE = 'user-read-private user-read-email user-top-read'
 STATE_KEY = 'spotify_auth_state'
 
 # Function to generate a random state string
