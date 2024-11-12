@@ -59,7 +59,7 @@ def callback():
         'Content-Type': 'application/x-www-form-urlencoded',
         'Authorization': 'Basic ' + encoded_credentials,
     }
-    print(headers)
+
     data = {
         'grant_type': 'authorization_code',
         'code': code,
