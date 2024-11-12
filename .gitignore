@@ -1,4 +1,4 @@
 spotify_token.json
 config.py
 tracks.json
-/.pyc
+/__pycache__/
