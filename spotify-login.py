@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Spotify API credentials
-REDIRECT_URI = 'http://localhost:8888/callback'
+REDIRECT_URI = 'http://localhost:3000/callback'
 SCOPE = 'user-read-private user-read-email user-top-read'
 STATE_KEY = 'spotify_auth_state'
 
@@ -92,4 +92,4 @@ def get_spotify_user_profile(access_token):
     return response.json()
 
 if __name__ == '__main__':
-    app.run(port=8888, debug=True)
+    app.run(port=3000, debug=False)

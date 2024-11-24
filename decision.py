@@ -156,20 +156,29 @@ if __name__ == "__main__":
     print("Data with Labels:\n", df)
     
     # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["rank", "duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    numeric_columns = ["rank", "duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
     bins = generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
     df = bucketize_columns(df, bins)
     
     # Exclude the track_name for training
-    training_data = df.drop(columns=["track_name"])
+    training_data = df
+
+    # Randomly select 5 songs for testing
+    test_data = training_data.sample(n=5, random_state=42)
+
+    # Drop the selected songs from the training data
+    training_data = training_data.drop(test_data.index)
+
+    # Reset the index of the training data
+    training_data = training_data.reset_index(drop=True)
     
     # Train the decision tree with a maximum depth
     dt = NonBinaryDecisionTree()
-    dt.train(training_data, max_depth=10)
+    dt.train(training_data.drop(columns=["track_name"]), max_depth=20)
     
     # Predict the labels for the training data
-    predictions = dt.predict(training_data.drop(columns=["labels"]))
-    df["predictions"] = predictions
-    print("Data with Predictions:\n", df[["track_name", "labels", "predictions"]])
+    predictions = dt.predict(test_data.drop(columns=["track_name", "labels"]))
+    test_data["predictions"] = predictions
+    print("Data with Predictions:\n", test_data[["track_name", "labels", "predictions"]])
