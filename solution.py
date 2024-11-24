@@ -249,7 +249,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     inputted_song = args.song
 
-    # Step 1: Start your Flask server for Spotify authentication
+    # Step 1: Start Flask server for Spotify authentication
     flask_process = subprocess.Popen(['python', 'spotify-login.py'])
 
     # Step 2: Prompt the user to authorize the app
