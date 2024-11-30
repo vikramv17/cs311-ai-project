@@ -6,6 +6,7 @@ import argparse
 import pandas as pd
 from typing import List
 import numpy as np
+import random
 
 # Load the access token from the saved JSON file
 def get_access_token():
@@ -137,15 +138,14 @@ def fetch_tracks(access_token):
             df['explicit'] = df['explicit'].astype(int)
             
             # Reorder columns for readability
-            columns_order = ['rank', 'track_name', 'artist', 'album_name', 'duration_ms', 
-                            'explicit', 'popularity', 'acousticness', 'danceability', 
-                            'energy', 'instrumentalness', 'key', 'liveness', 
-                            'loudness', 'mode', 'speechiness', 'tempo', 'valence']
+            columns_order = ['rank', 'track_id', 'track_name', 'artist', 'album_name', 
+                             'duration_ms', 'explicit', 'popularity', 'acousticness', 
+                             'danceability', 'energy', 'instrumentalness', 'key', 'liveness', 
+                             'loudness', 'mode', 'speechiness', 'tempo', 'valence']
             df = df[columns_order]
 
             # Save the DataFrame to a JSON file
-            df.to_json('tracks.json', orient='records', lines=False)
-
+            # df.to_json('tracks.json', orient='records', lines=False)
             # Display the DataFrame
             print("All Tracks with Audio Features:")
             print(df)
@@ -156,8 +156,8 @@ def fetch_tracks(access_token):
 
     return df
 
+# Function to search for a song and retrieve its audio features
 def search_song(search_term, access_token):
-
     track = {}
 
     url = "https://api.spotify.com/v1/search"
@@ -215,6 +215,32 @@ def search_song(search_term, access_token):
 
     return df_new_song
 
+# Function to search for a song and retrieve its id
+def search_song_v2(search_term, access_token):
+    url = "https://api.spotify.com/v1/search"
+    headers = {
+        'Authorization': f'Bearer {access_token}'
+    }
+
+    params = {
+        'q': search_term,
+        'type': 'track',
+        'limit': 2,
+    }
+    response = requests.get(url, headers=headers, params=params)
+    
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} - {response.text}")
+
+    data = response.json()
+    item = data.get('tracks', {}).get('items', [{}])[0]
+    name = item.get('name')
+    id = item.get('id')
+
+    print(f"Inputted Track: {name}")
+
+    return id
+
 # Return the most similar song using cosine similarity
 def song_similarity(song_data, new_song):
     # Find attributes of new song given by user (will do this with API):
@@ -232,11 +258,24 @@ def song_similarity(song_data, new_song):
     sorted_similarity = song_data.sort_values(by="cosine_similarity", ascending=False)
     most_similar_song = sorted_similarity.iloc[0]
 
-    # If the most similar song is the same as the new song, return the next most similar song
-    if most_similar_song["track_name"] == new_song["track_name"].values[0]:
-        most_similar_song = sorted_similarity.iloc[1]
-
     return most_similar_song["track_name"], most_similar_song["artist"]
+
+def most_similar_songs(training_tracks, test_tracks):
+    song_similarity_results = []
+
+    for index, test_song in test_tracks.iterrows():
+        most_similar_song, most_similar_song_artist = song_similarity(training_tracks, test_song)
+        song_similarity_results.append({
+            "song": test_song["track_name"],
+            "artist": test_song["artist"],
+            "most_similar_song": most_similar_song,
+            "most_similar_song_artist": most_similar_song_artist
+        })
+
+    song_similarity_df = pd.DataFrame(song_similarity_results)
+    
+    print("Song Similarity Results:")
+    print(song_similarity_df)
 
 if __name__ == "__main__":
     # Step 1: Parse inputted song
@@ -245,6 +284,11 @@ if __name__ == "__main__":
         "-s",
         "--song",
         help="Search term for the inputted song",
+    )
+    parser.add_argument(
+        "-t",
+        "--tests",
+        help="Number of test songs to select",
     )
     args = parser.parse_args()
     inputted_song = args.song
@@ -265,16 +309,26 @@ if __name__ == "__main__":
         print("Failed to obtain access token.")
 
     # Step 4: Fetch all saved tracks and audio features, then combine into a DataFrame
-    tracks = fetch_tracks(access_token)
+    # tracks = fetch_tracks(access_token)
+    tracks = pd.read_json("tracks.json") # to avoid fetching tracks every time
 
     # Step 5: Terminate the Flask server once tracks are returned
     flask_process.terminate()
 
-    # Step 6: Retrieve audio features of inputted song
-    new_song = search_song(inputted_song, access_token)
+    # Step 6: Retrieve audio features of inputted song and remove it from training data
+    # new_song = search_song(inputted_song, access_token)
+    test_song_id = search_song_v2(inputted_song, access_token)
+    test_song = tracks.loc[tracks["track_id"] == test_song_id]
+    if test_song.empty and inputted_song:
+        print("Inputted song not found in training data.")
+    tests = 0 if not test_song.empty and not args.tests else int(args.tests) if args.tests else 5
 
-    # Step 7: Determine most similar song
-    most_similar_song, most_similar_song_artist = song_similarity(tracks, new_song)
-    print(f"Most Similar Song: {most_similar_song} by {most_similar_song_artist}")
+    # Step 7: Remove test_songs from training data
+    test_tracks = tracks.sample(n=tests, random_state=random.randint(1, 10000))
+    test_tracks = pd.concat([test_tracks, test_song], ignore_index=False)
+    training_tracks = tracks.drop(test_tracks.index).reset_index(drop=True)
+    
+    # Step 7: Determine most similar songs
+    most_similar_songs(training_tracks, test_tracks)
 
     # TODO: Step 8: Predict likelihood of enjoyment
