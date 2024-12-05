@@ -64,10 +64,10 @@ class NonBinaryDecisionTree:
         # Create branches for each unique value of the best feature
         branches = {}
         feature_name = features[best_feature]
-        majority_label = labels.mode().iloc[0]
-        majority_probability = (labels == majority_label).mean()
         for val, sub in best_sub.items():
             if sub.empty:  # Handle empty subsets
+                majority_label = labels.mode().iloc[0]
+                majority_probability = (labels == majority_label).mean()
                 branches[val] = TreeLeaf(prediction=majority_label, probability=majority_probability)
             else:
                 sub_labels = labels.loc[sub.index]
@@ -152,31 +152,38 @@ if __name__ == "__main__":
     print("Data with Labels:\n", df)
     
     # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["rank", "duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    numeric_columns = ["duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
     bins = generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
     df = bucketize_columns(df, bins)
-    
-    # Exclude the track_name for training
-    training_data = df.drop(columns=["track_name"])
+
+    training_data = df
+
+    # Randomly select 5 songs for testing
+    test_data = training_data.sample(n=5, random_state=42)
+    # Drop the selected songs from the training data
+    training_data = training_data.drop(test_data.index)
+
+    # Reset the index of the training data
+    training_data = training_data.reset_index(drop=True)
     
     # Train the decision tree with a maximum depth
     dt = NonBinaryDecisionTree()
-    dt.train(training_data, max_depth=10)
+    dt.train(training_data.drop(columns=["rank", "track_name", "track_id"]), max_depth=20)
     
     # Predict the labels for the training data
-    predictions, probabilities = dt.predict(training_data.drop(columns=["labels"]))
-    df["predictions"] = predictions
-    df["prediction_probabilities"] = probabilities
-    print("Data with Predictions and Probabilities:\n", df[["track_name", "labels", "predictions", "prediction_probabilities"]])
+    predictions, probabilities = dt.predict(test_data.drop(columns=["rank", "track_name", "track_id", "labels"]))
+    test_data["predictions"] = predictions
+    test_data["prediction_probabilities"] = probabilities
+    print("Data with Predictions and Probabilities:\n", test_data[["track_name", "labels", "predictions", "prediction_probabilities"]])
     
     # Print rows where prediction_probabilities isn't 1
-    uncertain_predictions = df[df["prediction_probabilities"] != 1]
+    uncertain_predictions = test_data[test_data["prediction_probabilities"] != 1]
     if not uncertain_predictions.empty:
         print("Rows with Uncertain Predictions:\n", uncertain_predictions)
     
-    none_predictions = df[df["predictions"] == "None"]
+    none_predictions = test_data[test_data["predictions"] == "None"]
     if not none_predictions.empty:
         print("Rows with 'None' Predictions:\n", none_predictions)
     print("None of the rows contain 'None' for predictions.")
