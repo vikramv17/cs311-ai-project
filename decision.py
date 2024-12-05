@@ -4,27 +4,25 @@ import json
 
 class TreeLeaf:
     '''Object that represents a leaf in the decision tree'''
-    def __init__(self, prediction, class_probabilities=None):
+    def __init__(self, prediction, probability):
         self.prediction = prediction
-        self.class_probabilities = class_probabilities if class_probabilities is not None else {}
-
+        self.probability = probability
+        
     def predict(self, _):
-        return self.prediction
-    
-    def get_probability(self):
-        # Return the probability of the predicted label
-        return self.class_probabilities.get(self.prediction, 0)
+        return self.prediction, self.probability
     
 class TreeNode:
-    def __init__(self, feature, branches):
+    def __init__(self, feature, branches, majority_label, majority_probability):
         self.feature = feature
         self.branches = branches
+        self.majority_label = majority_label
+        self.majority_probability = majority_probability
         
     def predict(self, x):
         feature_val = x.iloc[self.feature]
         if feature_val in self.branches:
             return self.branches[feature_val].predict(x)
-        return None
+        return self.majority_label, self.majority_probability
     
 class NonBinaryDecisionTree:
     def __init__(self):
@@ -36,66 +34,61 @@ class NonBinaryDecisionTree:
         """
         label_col = data.columns[-1]
         labels = data[label_col]
-
-        # Debugging: Print recursion depth
         
-
         # Stopping condition: Maximum depth reached
         if depth >= max_depth:
-            return TreeLeaf(prediction=labels.mode().iloc[0], class_probabilities=labels.value_counts(normalize=True).to_dict())
-
+            majority_label = labels.mode().iloc[0]
+            probability = (labels == majority_label).mean()
+            return TreeLeaf(prediction=majority_label, probability=probability)
+        
         # Stopping condition: All labels are the same
         if labels.nunique() == 1:
-            return TreeLeaf(prediction=labels.iloc[0], class_probabilities={labels.iloc[0]: 1.0})
-
+            return TreeLeaf(prediction=labels.iloc[0], probability=1.0)
+        
         # Stopping condition: No features remain
         if data.shape[1] <= 1:
             majority_label = labels.mode().iloc[0]
-            return TreeLeaf(prediction=majority_label, class_probabilities={majority_label: 1.0})
-
+            probability = (labels == majority_label).mean()
+            return TreeLeaf(prediction=majority_label, probability=probability)
+        
         # Find the best feature to split on
         features = data.columns[:-1]
         best_feature, _, best_sub = self.find_best_split(data[features], labels)
-
+        
         # Stopping condition: No valid splits found
         if best_feature is None:
             majority_label = labels.mode().iloc[0]
-            return TreeLeaf(prediction=majority_label, class_probabilities={majority_label: 1.0})
-
+            probability = (labels == majority_label).mean()
+            return TreeLeaf(prediction=majority_label, probability=probability)
+        
         # Create branches for each unique value of the best feature
         branches = {}
         feature_name = features[best_feature]
+        majority_label = labels.mode().iloc[0]
+        majority_probability = (labels == majority_label).mean()
         for val, sub in best_sub.items():
             if sub.empty:  # Handle empty subsets
-                majority_label = labels.mode().iloc[0]
-                print(f"Empty subset for value {val}. Assigning majority label {majority_label}")
-                branches[val] = TreeLeaf(prediction=majority_label, class_probabilities={majority_label: 1.0})
+                branches[val] = TreeLeaf(prediction=majority_label, probability=majority_probability)
             else:
                 sub_labels = labels.loc[sub.index]
                 sub = sub.assign(**{label_col: sub_labels})
                 branches[val] = self.create_tree(sub, depth + 1, max_depth)
-
-        return TreeNode(feature=best_feature, branches=branches)
+        return TreeNode(feature=best_feature, branches=branches, majority_label=majority_label, majority_probability=majority_probability)
     
     def find_best_split(self, data: pd.DataFrame, labels: pd.Series):
         best_feature = None
         best_entropy = float('inf')
         best_subsets = None
-
         for feature, feature_name in enumerate(data.columns):
             subsets = self.split(data, feature_name)
             entropy = self.partition_entropy([labels.loc[i.index] for i in subsets.values()])
-
             # Skip features that create no improvement
             if entropy >= best_entropy:
                 continue
-
             best_entropy = entropy
             best_feature = feature
             best_subsets = subsets
-
         return best_feature, best_entropy, best_subsets
-    
     
     def split(self, data: pd.DataFrame, feature_name: str):
         return {value: data[data[feature_name] == value] for value in data[feature_name].unique()}
@@ -103,8 +96,6 @@ class NonBinaryDecisionTree:
     def partition_entropy(self, subsets):
         total_count = sum(len(i) for i in subsets)
         entropy = sum(len(i) / total_count * self.entropy(i.value_counts(normalize=True)) for i in subsets if len(i) > 0)
-
-        # Debugging: Print subset sizes and entropy
         return entropy
     
     def entropy(self, chance):
@@ -117,22 +108,9 @@ class NonBinaryDecisionTree:
         return self.tree.predict(x)
     
     def predict(self, data: pd.DataFrame):
-        return np.array([self.predict_one(row) for _, row in data.iterrows()])
+        predictions = [self.predict_one(row) for _, row in data.iterrows()]
+        return np.array([pred for pred, _ in predictions]), np.array([prob for _, prob in predictions])
     
-    def predict_probability(self, data: pd.DataFrame):
-        probabilities = []
-        for _, row in data.iterrows():
-            node = self.tree
-            while isinstance(node, TreeNode):  # Traverse until a leaf node is reached
-                feature_val = row.iloc[node.feature]
-                node = node.branches.get(feature_val, None)
-                if node is None:
-                    break  # Handle missing branches if necessary
-            probabilities.append(node.get_probability() if isinstance(node, TreeLeaf) else 0)
-        return np.array(probabilities)
-
-    
-
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
     '''Assigns labels to a dataframe based on the rank of the row'''
     df["labels"] = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
@@ -174,40 +152,31 @@ if __name__ == "__main__":
     print("Data with Labels:\n", df)
     
     # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["rank", "duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    numeric_columns = ["rank", "duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
     bins = generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
     df = bucketize_columns(df, bins)
     
     # Exclude the track_name for training
-    training_data = df
-
-    # Randomly select 5 songs for testing
-    test_data = training_data.sample(n=5, random_state=42)
-
-    # Drop the selected songs from the training data
-    training_data = training_data.drop(test_data.index)
-
-    # Reset the index of the training data
-    training_data = training_data.reset_index(drop=True)
+    training_data = df.drop(columns=["track_name"])
     
     # Train the decision tree with a maximum depth
     dt = NonBinaryDecisionTree()
-    dt.train(training_data.drop(columns=["track_name"]), max_depth=20)
+    dt.train(training_data, max_depth=10)
     
     # Predict the labels for the training data
-<<<<<<< HEAD
-    predictions = dt.predict(training_data.drop(columns=["labels"]))
+    predictions, probabilities = dt.predict(training_data.drop(columns=["labels"]))
     df["predictions"] = predictions
+    df["prediction_probabilities"] = probabilities
+    print("Data with Predictions and Probabilities:\n", df[["track_name", "labels", "predictions", "prediction_probabilities"]])
     
-    # Predict the probabilities for the training data
-    probabilities = dt.predict_probability(training_data.drop(columns=["labels"]))
-    df["probability"] = probabilities
+    # Print rows where prediction_probabilities isn't 1
+    uncertain_predictions = df[df["prediction_probabilities"] != 1]
+    if not uncertain_predictions.empty:
+        print("Rows with Uncertain Predictions:\n", uncertain_predictions)
     
-    print("Data with Predictions and Probabilities:\n", df[["track_name", "labels", "predictions", "probability"]])
-=======
-    predictions = dt.predict(test_data.drop(columns=["track_name", "labels"]))
-    test_data["predictions"] = predictions
-    print("Data with Predictions:\n", test_data[["track_name", "labels", "predictions"]])
->>>>>>> refs/remotes/origin/main
+    none_predictions = df[df["predictions"] == "None"]
+    if not none_predictions.empty:
+        print("Rows with 'None' Predictions:\n", none_predictions)
+    print("None of the rows contain 'None' for predictions.")
