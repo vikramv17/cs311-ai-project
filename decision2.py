@@ -156,14 +156,12 @@ def compute_metrics(y_true, y_pred):
     }
 
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
-    '''Assigns labels to a dataframe based on the rank of the row'''
+    """Assigns labels to a dataframe based on the rank of the row"""
     labels = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
     return labels
 
 def generate_bins_from_quartiles(df, columns):
-    """
-    Automatically generate 4 bins for numeric columns using quartiles.
-    """
+    """Automatically generate 4 bins for numeric columns using quartiles"""
     bins = {}
     for column in columns:
         if column not in ["mode", "explicit"]:
@@ -171,7 +169,7 @@ def generate_bins_from_quartiles(df, columns):
     return bins
 
 def bucketize_columns(data: pd.DataFrame, bins: dict):
-    '''Bucketize the columns in the dataframe based on the bins'''
+    """Bucketize the columns in the dataframe based on the bins provided"""
     for column, bin_edges in bins.items():
         bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
         data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
@@ -182,23 +180,8 @@ def bucketize_columns(data: pd.DataFrame, bins: dict):
     
     return data
 
-if __name__ == "__main__":
-    # Load the data from a JSON file into a pandas DataFrame
-    with open("tracks.json", "r") as f:
-        data = json.load(f)
-    df = pd.DataFrame(data)
-    
-    # Assign labels based on their ranks
-    training_labels = assign_labels_by_rank(df, rank_column="rank")
-    print("Data with Labels:\n", df)
-    
-    # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
-    bins = generate_bins_from_quartiles(df, numeric_columns)
-    
-    # Bucketize columns
-    df = bucketize_columns(df, bins)
-
+def generate_training_and_test_data(df, training_labels):
+    """Generate training and test data from the DataFrame"""
     training_data = df.drop(columns=["rank", "track_id", "album_name"])
 
     # Randomly select 5 songs for testing
@@ -210,12 +193,11 @@ if __name__ == "__main__":
 
     # Reset the index of the training data
     training_data = training_data.reset_index(drop=True)
-    tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
-    # tree.display()
 
-    # Load test data and predict labels with previously learned tree
-    pred_labels = predict(tree, test_data.drop(columns=["track_name", "artist"]))
+    return training_data, test_data, test_labels
 
+def display_results(test_data, test_labels, pred_labels):
+    """Display the results of the predictions"""
     # Create a DataFrame to store the song name, true label, and predicted label
     results = pd.DataFrame({
         "track_name": test_data["track_name"],
@@ -246,6 +228,8 @@ if __name__ == "__main__":
     # Print the difference table
     print("Difference Table:\n", difference_table)
 
+def display_metrics(test_labels, pred_labels):
+    """Calculate and display metrics to evaluate predictions"""
     # Compute and print accuracy metrics
     predict_metrics = compute_metrics(test_labels, pred_labels)
     for met, val in predict_metrics.items():
@@ -258,3 +242,36 @@ if __name__ == "__main__":
             val,
             sep="",
         )
+
+if __name__ == "__main__":
+    # Load the data from a JSON file into a pandas DataFrame
+    with open("tracks.json", "r") as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+    
+    # Assign labels based on their ranks
+    training_labels = assign_labels_by_rank(df, rank_column="rank")
+    print("Data with Labels:\n", df)
+    
+    # Create bins based on quartiles for int and float dtype columns
+    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    bins = generate_bins_from_quartiles(df, numeric_columns)
+    
+    # Bucketize columns
+    df = bucketize_columns(df, bins)
+
+    # Generate training and test data
+    training_data, test_data, test_labels = generate_training_and_test_data(df, training_labels)
+
+    # Make tree
+    tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+    # tree.display()
+
+    # Predict labels for test data with previously learned tree
+    pred_labels = predict(tree, test_data.drop(columns=["track_name", "artist"]))
+
+    # Display results
+    display_results(test_data, test_labels, pred_labels)
+
+    # Calculate and display metrics
+    display_metrics(test_labels, pred_labels)
