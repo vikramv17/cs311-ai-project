@@ -59,9 +59,6 @@ class DecisionLeaf:
         """Pretty print tree starting at optional indent"""
         print("Label=", self.label)
 
-
-
-
 def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
     """Return the expected reduction in entropy from splitting X,y by attr"""
     # Calculate entropy before the split
@@ -143,12 +140,20 @@ def compute_metrics(y_true, y_pred):
     Returns:
         dict: Dictionary of metrics in including confusion matrix, accuracy, recall, precision and F1
     """
+    # Mean Absolute Error
+    mae = metrics.mean_absolute_error(y_true, y_pred)
+    
+    # Proximity Score (normalized MAE)
+    label_range = max(y_true) - min(y_true)
+    proximity_score = 1 - (mae / label_range)
+
     return {
         "confusion": metrics.confusion_matrix(y_true, y_pred),
         "accuracy": metrics.accuracy_score(y_true, y_pred),
         "recall": metrics.recall_score(y_true, y_pred, average='macro'),
         "precision": metrics.precision_score(y_true, y_pred, average='macro'),
         "f1": metrics.f1_score(y_true, y_pred, average='macro'),
+        "proximity_score": proximity_score,
     }
 
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
