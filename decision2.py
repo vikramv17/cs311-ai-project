@@ -167,23 +167,20 @@ def generate_bins_from_quartiles(df, columns):
     """
     bins = {}
     for column in columns:
-        if pd.api.types.is_numeric_dtype(df[column]):
-            min_val = df[column].min()
-            max_val = df[column].max()
-            q1 = df[column].quantile(0.25)
-            q2 = df[column].quantile(0.50)
-            q3 = df[column].quantile(0.75)
-            
-            # Define 4 bins
-            bin_edges = [min_val, q1, q2, q3, max_val]
-            bins[column] = sorted(set(bin_edges))  # Ensure bin edges are unique and sorted
+        if column not in ["mode", "explicit"]:
+            bins[column] = pd.qcut(df[column], q=4, duplicates='drop', retbins=True)[1]
     return bins
 
 def bucketize_columns(data: pd.DataFrame, bins: dict):
     '''Bucketize the columns in the dataframe based on the bins'''
     for column, bin_edges in bins.items():
-        bin_labels = range(len(bin_edges) - 1)  # Generate 4 labels for 4 bins: 0, 1, 2, 3
+        bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
         data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
+    
+    # Manually binarize 'mode' and 'explicit' columns
+    data['mode'] = pd.cut(data['mode'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    data['explicit'] = pd.cut(data['explicit'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    
     return data
 
 if __name__ == "__main__":
@@ -197,7 +194,7 @@ if __name__ == "__main__":
     print("Data with Labels:\n", df)
     
     # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
     bins = generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
