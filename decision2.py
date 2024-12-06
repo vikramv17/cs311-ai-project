@@ -206,7 +206,7 @@ if __name__ == "__main__":
     training_data = df.drop(columns=["rank", "track_id", "album_name"])
 
     # Randomly select 5 songs for testing
-    test_data = training_data.sample(n=5, random_state=42)
+    test_data = training_data.sample(n=100, random_state=42)
     test_labels = training_labels.loc[test_data.index]
 
     # Drop the selected songs from the training data
@@ -234,8 +234,10 @@ if __name__ == "__main__":
     # Compute and print accuracy metrics
     predict_metrics = compute_metrics(test_labels, pred_labels)
     for met, val in predict_metrics.items():
+        # Format the metric name
+        formatted_met = met.replace('_', ' ').title()
         print(
-            met.capitalize(),
+            formatted_met,
             ": ",
             ("\n" if isinstance(val, np.ndarray) else ""),
             val,
