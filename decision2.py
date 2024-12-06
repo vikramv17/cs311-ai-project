@@ -9,10 +9,14 @@ import pandas as pd
 from sklearn import metrics
 from sklearn.model_selection import StratifiedKFold
 import json
+import warnings
+
+# Ignore entropy calculation warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in scalar multiply")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="divide by zero encountered in log2")
 
 # Type alias for nodes in decision tree
 DecisionNode = Union["DecisionBranch", "DecisionLeaf"]
-
 
 class DecisionBranch:
     """Branching node in decision tree"""
@@ -31,14 +35,12 @@ class DecisionBranch:
         """Return predicted labeled for array-like example x"""
         return self.branches[x[self.attr]].predict(x)
 
-
     def display(self, indent=0):
         """Pretty print tree starting at optional indent"""
         print("Test Feature", self.attr)
         for val, subtree in self.branches.items():
             print(" " * 4 * indent, self.attr, "=", val, "->", end=" ")
             subtree.display(indent + 1)
-
 
 class DecisionLeaf:
     """Leaf node in decision tree"""
@@ -112,12 +114,10 @@ def learn_decision_tree(
 
         return tree
 
-
 def fit(X: pd.DataFrame, y: pd.Series) -> DecisionNode:
     """Return train decision tree on examples, X, with labels, y"""
     # You can change the implementation of this function, but do not modify the signature
     return learn_decision_tree(X, y, X.columns, y)
-
 
 def predict(tree: DecisionNode, X: pd.DataFrame):
     """Return array-like predctions for examples, X and Decision Tree, tree"""
@@ -128,7 +128,6 @@ def predict(tree: DecisionNode, X: pd.DataFrame):
     # with the specified arguments (in this case a row). The axis argument specifies that the function
     # should be applied to all rows.
     return X.apply(lambda row: tree.predict(row), axis=1)
-
 
 def compute_metrics(y_true, y_pred):
     """Compute metrics to evaluate binary classification accuracy
@@ -212,7 +211,7 @@ if __name__ == "__main__":
     # Reset the index of the training data
     training_data = training_data.reset_index(drop=True)
     tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
-    tree.display()
+    # tree.display()
 
     # Load test data and predict labels with previously learned tree
     pred_labels = predict(tree, test_data.drop(columns=["track_name", "artist"]))
@@ -225,8 +224,27 @@ if __name__ == "__main__":
         "predicted_label": pred_labels
     })
 
+    # Convert true_label and predicted_label to numeric dtype
+    results["true_label"] = results["true_label"].astype(int)
+    results["predicted_label"] = results["predicted_label"].astype(int)
+
     # Print the results
     print("Results:\n", results)
+
+    # Compute the absolute differences between true labels and predicted labels
+    results["difference"] = (results["true_label"] - results["predicted_label"]).abs()
+
+    # Count the occurrences of each difference
+    difference_counts = results["difference"].value_counts().sort_index()
+
+    # Create a table to display the results
+    difference_table = pd.DataFrame({
+        "Difference": difference_counts.index,
+        "Count": difference_counts.values
+    })
+
+    # Print the difference table
+    print("Difference Table:\n", difference_table)
 
     # Compute and print accuracy metrics
     predict_metrics = compute_metrics(test_labels, pred_labels)
