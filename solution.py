@@ -4,9 +4,16 @@ import json
 import time
 import argparse
 import pandas as pd
-from typing import List
+from typing import Sequence
 import numpy as np
 import random
+import warnings
+from sklearn import metrics
+from RandomForest import RandomForest
+from decision import DecisionBranch, DecisionLeaf, DecisionNode
+
+# Ignore specific FutureWarning
+warnings.filterwarnings("ignore", category=FutureWarning, message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated")
 
 # Load the access token from the saved JSON file
 def get_access_token():
@@ -228,9 +235,6 @@ def search_song_v2(search_term, access_token):
         'limit': 2,
     }
     response = requests.get(url, headers=headers, params=params)
-    
-    if response.status_code != 200:
-        print(f"Error: {response.status_code} - {response.text}")
 
     data = response.json()
     item = data.get('tracks', {}).get('items', [{}])[0]
@@ -243,10 +247,12 @@ def search_song_v2(search_term, access_token):
 
 # Return the most similar song using cosine similarity
 def song_similarity(song_data, new_song):
-    # Find attributes of new song given by user (will do this with API):
+    tracks = song_data.copy()
+
+    # Find attributes of new song given by user
     features = ["acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
 
-    all_songs_feature_matrix = song_data[features].values
+    all_songs_feature_matrix = tracks[features].values
     new_song_feature_matrix = new_song[features].values.flatten()
 
     dot_product = np.dot(all_songs_feature_matrix, new_song_feature_matrix)
@@ -254,8 +260,8 @@ def song_similarity(song_data, new_song):
 
     cosine_similarity = dot_product / magnitudes
 
-    song_data["cosine_similarity"] = cosine_similarity
-    sorted_similarity = song_data.sort_values(by="cosine_similarity", ascending=False)
+    tracks["cosine_similarity"] = cosine_similarity
+    sorted_similarity = tracks.sort_values(by="cosine_similarity", ascending=False)
     most_similar_song = sorted_similarity.iloc[0]
 
     return most_similar_song["track_name"], most_similar_song["artist"]
@@ -276,6 +282,192 @@ def most_similar_songs(training_tracks, test_tracks):
     
     print("Song Similarity Results:")
     print(song_similarity_df)
+
+def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
+    """Return the expected reduction in entropy from splitting X,y by attr"""
+    # Calculate entropy before the split
+    entropy = -sum([p * np.log2(p) for p in y.value_counts(normalize=True)])
+    
+    # Calculate entropy after the split
+    remainder = 0.0
+    for val, subset in X.groupby(attr, observed=False):
+        subset_y = y.loc[subset.index]
+        subset_entropy = -sum([p * np.log2(p) for p in subset_y.value_counts(normalize=True)])
+        remainder += len(subset) / len(X) * subset_entropy
+    
+    return entropy - remainder
+
+def learn_decision_tree(
+    X: pd.DataFrame,
+    y: pd.Series,
+    attrs: Sequence[str],
+    y_parent: pd.Series,
+) -> DecisionNode:
+    """Recursively learn the decision tree
+
+    Args:
+        X (pd.DataFrame): Table of examples (as DataFrame)
+        y (pd.Series): array-like example labels (target values)
+        attrs (Sequence[str]): Possible attributes to split examples
+        y_parent (pd.Series): array-like example labels for parents (parent target values)
+
+    Returns:
+        DecisionNode: Learned decision tree node
+    """
+    if X.empty:
+        # Return plurality of parent examples
+        return DecisionLeaf(y_parent.mode()[0])
+    elif y.nunique() == 1:
+        # Return classification
+        return DecisionLeaf(y.iloc[0])
+    elif len(attrs) == 0:
+        # Return plurality of examples
+        return DecisionLeaf(y.mode()[0])
+    else:
+        # Select attribute with highest information gain
+        a = max(attrs, key=lambda a: information_gain(X, y, a))
+
+        # Create branch node and recursively learn subtrees
+        tree = DecisionBranch(a, {})
+        for v, subset in X.groupby(a, observed=False):
+            tree.branches[v] = learn_decision_tree(
+                subset, y.loc[subset.index], [attr for attr in attrs if attr != a], y
+            )
+
+        return tree
+
+def predict(tree: DecisionNode, X: pd.DataFrame):
+    """Return array-like predctions for examples, X and Decision Tree, tree"""
+
+    # You can change the implementation of this function, but do not modify the signature
+
+    # Invoke prediction method on every row in dataframe. `lambda` creates an anonymous function
+    # with the specified arguments (in this case a row). The axis argument specifies that the function
+    # should be applied to all rows.
+    return X.apply(lambda row: tree.predict(row), axis=1)
+
+def compute_metrics(y_true, y_pred):
+    """Compute metrics to evaluate binary classification accuracy
+
+    Args:
+        y_true: Array-like ground truth (correct) target values.
+        y_pred: Array-like estimated targets as returned by a classifier.
+
+    Returns:
+        dict: Dictionary of metrics in including confusion matrix, accuracy, recall, precision and F1
+    """
+    # Mean Absolute Error
+    mae = metrics.mean_absolute_error(y_true, y_pred)
+    
+    # Proximity Score (normalized MAE)
+    proximity_score = 1 - (mae / 4)
+
+    return {
+        "confusion": metrics.confusion_matrix(y_true, y_pred),
+        "accuracy": metrics.accuracy_score(y_true, y_pred),
+        "recall": metrics.recall_score(y_true, y_pred, average='macro'),
+        "precision": metrics.precision_score(y_true, y_pred, average='macro'),
+        "f1": metrics.f1_score(y_true, y_pred, average='macro'),
+        "proximity_score": proximity_score,
+    }
+
+def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
+    """Assigns labels to a dataframe based on the rank of the row"""
+    labels = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
+    return labels
+
+def generate_bins_from_quartiles(df, columns):
+    """Automatically generate 4 bins for numeric columns using quartiles"""
+    bins = {}
+    for column in columns:
+        if column not in ["mode", "explicit"]:
+            bins[column] = pd.qcut(df[column], q=4, duplicates='drop', retbins=True)[1]
+    return bins
+
+def bucketize_columns(data: pd.DataFrame, bins: dict):
+    """Bucketize the columns in the dataframe based on the bins provided"""
+    for column, bin_edges in bins.items():
+        bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
+        data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
+    
+    # Manually binarize 'mode' and 'explicit' columns
+    data['mode'] = pd.cut(data['mode'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    data['explicit'] = pd.cut(data['explicit'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    
+    return data
+
+def generate_training_and_test_data(df, tests=5, test_song=None):
+    """Generate training and test data from the DataFrame"""
+    # Assign labels based on their ranks
+    training_labels = assign_labels_by_rank(df, rank_column="rank")
+    # Create bins based on quartiles for int and float dtype columns
+    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    bins = generate_bins_from_quartiles(tracks, numeric_columns)
+
+    # Generate training and test data
+    training_tracks = df.drop(columns=["rank", "track_id", "album_name"])
+    test_tracks = df.sample(n=tests, random_state=random.randint(1, 10000))
+    test_tracks = pd.concat([test_tracks, test_song], ignore_index=False)
+    test_labels = training_labels.loc[test_tracks.index]
+    training_tracks = training_tracks.drop(test_tracks.index).reset_index(drop=True)
+    training_labels = training_labels.drop(test_tracks.index).reset_index(drop=True)
+
+    # Bucketize columns
+    training_data = bucketize_columns(training_tracks, bins)
+    test_data = bucketize_columns(test_tracks, bins)
+
+    return training_tracks, test_tracks, training_data, training_labels, test_data, test_labels
+
+def display_results(test_data, test_labels, pred_labels, pred_mean):
+    """Display the results of the predictions"""
+    # Create a DataFrame to store the song name, true label, and predicted label
+    results = pd.DataFrame({
+        "track_name": test_data["track_name"],
+        "artist": test_data["artist"],
+        "true_label": test_labels,
+        "predicted_label": pred_labels,
+        "mean_prediction": pred_mean
+    })
+
+    # Convert true_label and predicted_label to numeric dtype
+    results["true_label"] = results["true_label"].astype(int)
+    results["predicted_label"] = results["predicted_label"].astype(int)
+
+    # Calculate the enjoyment probability for each song
+    results["enjoyment_probability"] = results["mean_prediction"].apply(lambda x: f"{(4 - x) / 4:.2f}")
+
+    # Print the results
+    print("Results:\n", results)
+
+    # Compute the absolute differences between true labels and predicted labels
+    results["difference"] = (results["true_label"] - results["predicted_label"]).abs()
+
+    # Count the occurrences of each difference
+    difference_counts = results["difference"].value_counts().sort_index()
+
+    # Create a table to display the results
+    difference_table = pd.DataFrame({
+        "Difference": difference_counts.index,
+        "Count": difference_counts.values
+    })
+
+    # Print the difference table
+    print("Difference Table:\n", difference_table)
+
+def display_metrics(test_labels, pred_labels):
+    """Calculate and display metrics to evaluate predictions"""
+    # Compute and print accuracy metrics
+    predict_metrics = compute_metrics(test_labels, pred_labels)
+    for met, val in predict_metrics.items():
+        # Format the metric name
+        formatted_met = met.replace('_', ' ').title()
+        print(
+            formatted_met,
+            ": ",
+            ("\n" if isinstance(val, np.ndarray) else ""),
+            val,
+            sep="",
+        )
 
 if __name__ == "__main__":
     # Step 1: Parse inputted song
@@ -323,12 +515,22 @@ if __name__ == "__main__":
         print("Inputted song not found in training data.")
     tests = 0 if not test_song.empty and not args.tests else int(args.tests) if args.tests else 5
 
-    # Step 7: Remove test_songs from training data
-    test_tracks = tracks.sample(n=tests, random_state=random.randint(1, 10000))
-    test_tracks = pd.concat([test_tracks, test_song], ignore_index=False)
-    training_tracks = tracks.drop(test_tracks.index).reset_index(drop=True)
-    
-    # Step 7: Determine most similar songs
+    # Step 7: Generate training and test data
+    training_tracks, test_tracks, training_data, training_labels, test_data, test_labels = generate_training_and_test_data(tracks, tests, test_song)
+
+    # Step 8: Determine most similar songs
     most_similar_songs(training_tracks, test_tracks)
 
-    # TODO: Step 8: Predict likelihood of enjoyment
+    # Step 9: Predict likelihood of enjoyment
+    # Train the random forest
+    rf = RandomForest(n_trees=100, max_features="sqrt")
+    rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+
+    # Make predictions on the test set
+    tree_predictions, forest_prediction, mean_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
+
+    # Display results
+    display_results(test_data, test_labels, forest_prediction, mean_prediction)
+
+    # Calculate and display metrics
+    display_metrics(test_labels, forest_prediction)

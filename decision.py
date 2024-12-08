@@ -1,145 +1,247 @@
+"""
+CS311 Programming Assignment 5: Decision Trees
+"""
+
+import argparse, os, random, sys
+from typing import Any, Dict, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
+from sklearn import metrics
+from sklearn.model_selection import StratifiedKFold
 import json
+import warnings
 
-class TreeLeaf:
-    '''Object that represents a leaf in the decision tree'''
-    def __init__(self, prediction, probability):
-        self.prediction = prediction
-        self.probability = probability
-        
-    def predict(self, _):
-        return self.prediction, self.probability
-    
-class TreeNode:
-    def __init__(self, feature, branches, majority_label, majority_probability):
-        self.feature = feature
+# Ignore entropy calculation warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in scalar multiply")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="divide by zero encountered in log2")
+
+# Type alias for nodes in decision tree
+DecisionNode = Union["DecisionBranch", "DecisionLeaf"]
+
+class DecisionBranch:
+    """Branching node in decision tree"""
+
+    def __init__(self, attr: str, branches: Dict[Any, DecisionNode]):
+        """Create branching node in decision tree
+
+        Args:
+            attr (str): Splitting attribute
+            branches (Dict[Any, DecisionNode]): Children nodes for each possible value of `attr`
+        """
+        self.attr = attr
         self.branches = branches
-        self.majority_label = majority_label
-        self.majority_probability = majority_probability
-        
+
+    def predict(self, x: pd.Series):
+        """Return predicted labeled for array-like example x"""
+        return self.branches[x[self.attr]].predict(x)
+
+    def display(self, indent=0):
+        """Pretty print tree starting at optional indent"""
+        print("Test Feature", self.attr)
+        for val, subtree in self.branches.items():
+            print(" " * 4 * indent, self.attr, "=", val, "->", end=" ")
+            subtree.display(indent + 1)
+
+class DecisionLeaf:
+    """Leaf node in decision tree"""
+
+    def __init__(self, label):
+        """Create leaf node in decision tree
+
+        Args:
+            label: Label for this node
+        """
+        self.label = label
+
     def predict(self, x):
-        feature_val = x.iloc[self.feature]
-        if feature_val in self.branches:
-            return self.branches[feature_val].predict(x)
-        return self.majority_label, self.majority_probability
+        """Return predicted labeled for array-like example x"""
+        return self.label
+
+    def display(self, indent=0):
+        """Pretty print tree starting at optional indent"""
+        print("Label=", self.label)
+
+def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
+    """Return the expected reduction in entropy from splitting X,y by attr"""
+    # Calculate entropy before the split
+    entropy = -sum([p * np.log2(p) for p in y.value_counts(normalize=True)])
     
-class NonBinaryDecisionTree:
-    def __init__(self):
-        self.tree = None
-        
-    def create_tree(self, data: pd.DataFrame, depth=0, max_depth=20):
-        """
-        Recursively create the decision tree with depth-based stopping.
-        """
-        label_col = data.columns[-1]
-        labels = data[label_col]
-        
-        # Stopping condition: Maximum depth reached
-        if depth >= max_depth:
-            majority_label = labels.mode().iloc[0]
-            probability = (labels == majority_label).mean()
-            return TreeLeaf(prediction=majority_label, probability=probability)
-        
-        # Stopping condition: All labels are the same
-        if labels.nunique() == 1:
-            return TreeLeaf(prediction=labels.iloc[0], probability=1.0)
-        
-        # Stopping condition: No features remain
-        if data.shape[1] <= 1:
-            majority_label = labels.mode().iloc[0]
-            probability = (labels == majority_label).mean()
-            return TreeLeaf(prediction=majority_label, probability=probability)
-        
-        # Find the best feature to split on
-        features = data.columns[:-1]
-        best_feature, _, best_sub = self.find_best_split(data[features], labels)
-        
-        # Stopping condition: No valid splits found
-        if best_feature is None:
-            majority_label = labels.mode().iloc[0]
-            probability = (labels == majority_label).mean()
-            return TreeLeaf(prediction=majority_label, probability=probability)
-        
-        # Create branches for each unique value of the best feature
-        branches = {}
-        feature_name = features[best_feature]
-        for val, sub in best_sub.items():
-            if sub.empty:  # Handle empty subsets
-                majority_label = labels.mode().iloc[0]
-                majority_probability = (labels == majority_label).mean()
-                branches[val] = TreeLeaf(prediction=majority_label, probability=majority_probability)
-            else:
-                sub_labels = labels.loc[sub.index]
-                sub = sub.assign(**{label_col: sub_labels})
-                branches[val] = self.create_tree(sub, depth + 1, max_depth)
-        return TreeNode(feature=best_feature, branches=branches, majority_label=majority_label, majority_probability=majority_probability)
+    # Calculate entropy after the split
+    remainder = 0.0
+    for val, subset in X.groupby(attr, observed=False):
+        subset_y = y.loc[subset.index]
+        subset_entropy = -sum([p * np.log2(p) for p in subset_y.value_counts(normalize=True)])
+        remainder += len(subset) / len(X) * subset_entropy
     
-    def find_best_split(self, data: pd.DataFrame, labels: pd.Series):
-        best_feature = None
-        best_entropy = float('inf')
-        best_subsets = None
-        for feature, feature_name in enumerate(data.columns):
-            subsets = self.split(data, feature_name)
-            entropy = self.partition_entropy([labels.loc[i.index] for i in subsets.values()])
-            # Skip features that create no improvement
-            if entropy >= best_entropy:
-                continue
-            best_entropy = entropy
-            best_feature = feature
-            best_subsets = subsets
-        return best_feature, best_entropy, best_subsets
+    return entropy - remainder
+
+def learn_decision_tree(
+    X: pd.DataFrame,
+    y: pd.Series,
+    attrs: Sequence[str],
+    y_parent: pd.Series,
+) -> DecisionNode:
+    """Recursively learn the decision tree
+
+    Args:
+        X (pd.DataFrame): Table of examples (as DataFrame)
+        y (pd.Series): array-like example labels (target values)
+        attrs (Sequence[str]): Possible attributes to split examples
+        y_parent (pd.Series): array-like example labels for parents (parent target values)
+
+    Returns:
+        DecisionNode: Learned decision tree node
+    """
+    if X.empty:
+        # Return plurality of parent examples
+        return DecisionLeaf(y_parent.mode()[0])
+    elif y.nunique() == 1:
+        # Return classification
+        return DecisionLeaf(y.iloc[0])
+    elif len(attrs) == 0:
+        # Return plurality of examples
+        return DecisionLeaf(y.mode()[0])
+    else:
+        # Select attribute with highest information gain
+        a = max(attrs, key=lambda a: information_gain(X, y, a))
+
+        # Create branch node and recursively learn subtrees
+        tree = DecisionBranch(a, {})
+        for v, subset in X.groupby(a, observed=False):
+            tree.branches[v] = learn_decision_tree(
+                subset, y.loc[subset.index], [attr for attr in attrs if attr != a], y
+            )
+
+        return tree
+
+def fit(X: pd.DataFrame, y: pd.Series) -> DecisionNode:
+    """Return train decision tree on examples, X, with labels, y"""
+    # You can change the implementation of this function, but do not modify the signature
+    return learn_decision_tree(X, y, X.columns, y)
+
+def predict(tree: DecisionNode, X: pd.DataFrame):
+    """Return array-like predctions for examples, X and Decision Tree, tree"""
+
+    # You can change the implementation of this function, but do not modify the signature
+
+    # Invoke prediction method on every row in dataframe. `lambda` creates an anonymous function
+    # with the specified arguments (in this case a row). The axis argument specifies that the function
+    # should be applied to all rows.
+    return X.apply(lambda row: tree.predict(row), axis=1)
+
+def compute_metrics(y_true, y_pred):
+    """Compute metrics to evaluate binary classification accuracy
+
+    Args:
+        y_true: Array-like ground truth (correct) target values.
+        y_pred: Array-like estimated targets as returned by a classifier.
+
+    Returns:
+        dict: Dictionary of metrics in including confusion matrix, accuracy, recall, precision and F1
+    """
+    # Mean Absolute Error
+    mae = metrics.mean_absolute_error(y_true, y_pred)
     
-    def split(self, data: pd.DataFrame, feature_name: str):
-        return {value: data[data[feature_name] == value] for value in data[feature_name].unique()}
-        
-    def partition_entropy(self, subsets):
-        total_count = sum(len(i) for i in subsets)
-        entropy = sum(len(i) / total_count * self.entropy(i.value_counts(normalize=True)) for i in subsets if len(i) > 0)
-        return entropy
-    
-    def entropy(self, chance):
-        return -np.sum(chance * np.log2(chance + 1e-9))
-    
-    def train(self, data: pd.DataFrame, max_depth=20):
-        self.tree = self.create_tree(data, depth=0, max_depth=max_depth)
-        
-    def predict_one(self, x):
-        return self.tree.predict(x)
-    
-    def predict(self, data: pd.DataFrame):
-        predictions = [self.predict_one(row) for _, row in data.iterrows()]
-        return np.array([pred for pred, _ in predictions]), np.array([prob for _, prob in predictions])
-    
+    # Proximity Score (normalized MAE)
+    label_range = max(y_true) - min(y_true)
+    proximity_score = 1 - (mae / label_range)
+
+    return {
+        "confusion": metrics.confusion_matrix(y_true, y_pred),
+        "accuracy": metrics.accuracy_score(y_true, y_pred),
+        "recall": metrics.recall_score(y_true, y_pred, average='macro'),
+        "precision": metrics.precision_score(y_true, y_pred, average='macro'),
+        "f1": metrics.f1_score(y_true, y_pred, average='macro'),
+        "proximity_score": proximity_score,
+    }
+
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
-    '''Assigns labels to a dataframe based on the rank of the row'''
-    df["labels"] = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
-    return df
+    """Assigns labels to a dataframe based on the rank of the row"""
+    labels = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
+    return labels
 
 def generate_bins_from_quartiles(df, columns):
-    """
-    Automatically generate 4 bins for numeric columns using quartiles.
-    """
+    """Automatically generate 4 bins for numeric columns using quartiles"""
     bins = {}
     for column in columns:
-        if pd.api.types.is_numeric_dtype(df[column]):
-            min_val = df[column].min()
-            max_val = df[column].max()
-            q1 = df[column].quantile(0.25)
-            q2 = df[column].quantile(0.50)
-            q3 = df[column].quantile(0.75)
-            
-            # Define 4 bins
-            bin_edges = [min_val, q1, q2, q3, max_val]
-            bins[column] = sorted(set(bin_edges))  # Ensure bin edges are unique and sorted
+        if column not in ["mode", "explicit"]:
+            bins[column] = pd.qcut(df[column], q=4, duplicates='drop', retbins=True)[1]
     return bins
 
 def bucketize_columns(data: pd.DataFrame, bins: dict):
-    '''Bucketize the columns in the dataframe based on the bins'''
+    """Bucketize the columns in the dataframe based on the bins provided"""
     for column, bin_edges in bins.items():
-        bin_labels = range(len(bin_edges) - 1)  # Generate 4 labels for 4 bins: 0, 1, 2, 3
+        bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
         data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
+    
+    # Manually binarize 'mode' and 'explicit' columns
+    data['mode'] = pd.cut(data['mode'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    data['explicit'] = pd.cut(data['explicit'], bins=[-0.1, 0.5, 1.1], labels=[0, 1], include_lowest=True)
+    
     return data
+
+def generate_training_and_test_data(df, training_labels):
+    """Generate training and test data from the DataFrame"""
+    training_data = df.drop(columns=["rank", "track_id", "album_name"])
+
+    # Randomly select 5 songs for testing
+    test_data = training_data.sample(n=100, random_state=42)
+    test_labels = training_labels.loc[test_data.index]
+
+    # Drop the selected songs from the training data
+    training_data = training_data.drop(test_data.index)
+
+    # Reset the index of the training data
+    training_data = training_data.reset_index(drop=True)
+
+    return training_data, test_data, test_labels
+
+def display_results(test_data, test_labels, pred_labels):
+    """Display the results of the predictions"""
+    # Create a DataFrame to store the song name, true label, and predicted label
+    results = pd.DataFrame({
+        "track_name": test_data["track_name"],
+        "artist": test_data["artist"],
+        "true_label": test_labels,
+        "predicted_label": pred_labels
+    })
+
+    # Convert true_label and predicted_label to numeric dtype
+    results["true_label"] = results["true_label"].astype(int)
+    results["predicted_label"] = results["predicted_label"].astype(int)
+
+    # Print the results
+    print("Results:\n", results)
+
+    # Compute the absolute differences between true labels and predicted labels
+    results["difference"] = (results["true_label"] - results["predicted_label"]).abs()
+
+    # Count the occurrences of each difference
+    difference_counts = results["difference"].value_counts().sort_index()
+
+    # Create a table to display the results
+    difference_table = pd.DataFrame({
+        "Difference": difference_counts.index,
+        "Count": difference_counts.values
+    })
+
+    # Print the difference table
+    print("Difference Table:\n", difference_table)
+
+def display_metrics(test_labels, pred_labels):
+    """Calculate and display metrics to evaluate predictions"""
+    # Compute and print accuracy metrics
+    predict_metrics = compute_metrics(test_labels, pred_labels)
+    for met, val in predict_metrics.items():
+        # Format the metric name
+        formatted_met = met.replace('_', ' ').title()
+        print(
+            formatted_met,
+            ": ",
+            ("\n" if isinstance(val, np.ndarray) else ""),
+            val,
+            sep="",
+        )
 
 if __name__ == "__main__":
     # Load the data from a JSON file into a pandas DataFrame
@@ -148,42 +250,27 @@ if __name__ == "__main__":
     df = pd.DataFrame(data)
     
     # Assign labels based on their ranks
-    df = assign_labels_by_rank(df, rank_column="rank")
-    print("Data with Labels:\n", df)
+    training_labels = assign_labels_by_rank(df, rank_column="rank")
     
     # Create bins based on quartiles for int and float dtype columns
-    numeric_columns = ["duration_ms", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
     bins = generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
     df = bucketize_columns(df, bins)
 
-    training_data = df
+    # Generate training and test data
+    training_data, test_data, test_labels = generate_training_and_test_data(df, training_labels)
 
-    # Randomly select 5 songs for testing
-    test_data = training_data.sample(n=5, random_state=42)
-    # Drop the selected songs from the training data
-    training_data = training_data.drop(test_data.index)
+    # Make tree
+    tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+    # tree.display()
 
-    # Reset the index of the training data
-    training_data = training_data.reset_index(drop=True)
-    
-    # Train the decision tree with a maximum depth
-    dt = NonBinaryDecisionTree()
-    dt.train(training_data.drop(columns=["rank", "track_name", "track_id"]), max_depth=20)
-    
-    # Predict the labels for the training data
-    predictions, probabilities = dt.predict(test_data.drop(columns=["rank", "track_name", "track_id", "labels"]))
-    test_data["predictions"] = predictions
-    test_data["prediction_probabilities"] = probabilities
-    print("Data with Predictions and Probabilities:\n", test_data[["track_name", "labels", "predictions", "prediction_probabilities"]])
-    
-    # Print rows where prediction_probabilities isn't 1
-    uncertain_predictions = test_data[test_data["prediction_probabilities"] != 1]
-    if not uncertain_predictions.empty:
-        print("Rows with Uncertain Predictions:\n", uncertain_predictions)
-    
-    none_predictions = test_data[test_data["predictions"] == "None"]
-    if not none_predictions.empty:
-        print("Rows with 'None' Predictions:\n", none_predictions)
-    print("None of the rows contain 'None' for predictions.")
+    # Predict labels for test data with previously learned tree
+    pred_labels = predict(tree, test_data.drop(columns=["track_name", "artist"]))
+
+    # Display results
+    display_results(test_data, test_labels, pred_labels)
+
+    # Calculate and display metrics
+    display_metrics(test_labels, pred_labels)

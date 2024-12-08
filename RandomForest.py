@@ -3,7 +3,7 @@ import numpy as np
 import json
 import pandas as pd
 from typing import List, Sequence, Union
-from decision2 import learn_decision_tree, assign_labels_by_rank, generate_bins_from_quartiles, bucketize_columns, generate_training_and_test_data, predict, display_results, display_metrics
+from decision import learn_decision_tree, assign_labels_by_rank, generate_bins_from_quartiles, bucketize_columns, generate_training_and_test_data, predict, display_results, display_metrics
 
 class RandomForest:
     #use sklearn's defaults
@@ -52,25 +52,13 @@ class RandomForest:
         #predictions from all trees (columns are index of tree, row values are the predicted labels for given sample)
         tree_predictions = pd.DataFrame({i: predict(tree, X) for i, tree in enumerate(self.trees)})
 
-        #majority label
-        return tree_predictions, tree_predictions.mode(axis=1)[0] 
-    
-    
-    def enjoyment_prob(self, tree_predictions: pd.DataFrame, track_rank: int) -> float:
+        # Majority label
+        majority_label = tree_predictions.mode(axis=1)[0]
 
-        NUM_LABELS = 4
-        
-        #index has track rankings
-        song_row = tree_predictions.loc[[track_rank]]
+        # Mean prediction
+        mean_prediction = tree_predictions.mean(axis=1)
 
-
-        #find mean of tree predictions (rest of cols)
-        numeric_columns = song_row.iloc[:, 0:].apply(pd.to_numeric, errors='coerce')
-
-        mean_value = song_row.iloc[:, 0:].mean(axis=1).values[0]
-
-        return mean_value/NUM_LABELS
-
+        return tree_predictions, majority_label, mean_prediction
 
 if __name__ == "__main__":
     # Load the data from a JSON file into a pandas DataFrame
