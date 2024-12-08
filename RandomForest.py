@@ -1,8 +1,9 @@
 import math
 import numpy as np
+import json
 import pandas as pd
 from typing import List, Sequence, Union
-from DecisionTree import learn_decision_tree, predict, DecisionNode
+from decision2 import learn_decision_tree, assign_labels_by_rank, generate_bins_from_quartiles, bucketize_columns, generate_training_and_test_data, predict, display_results, display_metrics
 
 class RandomForest:
     #use sklearn's defaults
@@ -23,8 +24,6 @@ class RandomForest:
         """Get sample (w/ replacement) of whole dataset"""
         random_indices = np.random.choice(len(X), size = len(X), replace=True)
         return X.iloc[random_indices], y.iloc[random_indices]
-
-
         
     def fit(self, X: pd.DataFrame, y: pd.Series):
         """Train random forest on the dataset."""
@@ -38,6 +37,7 @@ class RandomForest:
 
         for _ in range(self.n_trees):
             sampled_X, sampled_y = self.bootstrapping(X,y)
+            
     
             tree = learn_decision_tree(
                 X=sampled_X,
@@ -48,15 +48,65 @@ class RandomForest:
 
             self.trees.append(tree)
         
-    def forest_predict(self, X: pd.DataFrame):
+    def forest_predict(self, X: pd.DataFrame) -> tuple:
         #predictions from all trees (columns are index of tree, row values are the predicted labels for given sample)
         tree_predictions = pd.DataFrame({i: predict(tree, X) for i, tree in enumerate(self.trees)})
 
         #majority label
-        return tree_predictions.mode(axis=1)[0] 
+        return tree_predictions, tree_predictions.mode(axis=1)[0] 
+    
+    
+    def enjoyment_prob(self, tree_predictions: pd.DataFrame, track_rank: int) -> float:
 
-            
-
+        NUM_LABELS = 4
         
+        #index has track rankings
+        song_row = tree_predictions.loc[[track_rank]]
 
 
+        #find mean of tree predictions (rest of cols)
+        numeric_columns = song_row.iloc[:, 0:].apply(pd.to_numeric, errors='coerce')
+
+        mean_value = song_row.iloc[:, 0:].mean(axis=1).values[0]
+
+        return mean_value/NUM_LABELS
+
+
+if __name__ == "__main__":
+    # Load the data from a JSON file into a pandas DataFrame
+    with open("tracks.json", "r") as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+    
+    # Assign labels based on their ranks
+    training_labels = assign_labels_by_rank(df, rank_column="rank")
+    print("Data with Labels:\n", df)
+    
+    # Create bins based on quartiles for int and float dtype columns
+    numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
+    bins = generate_bins_from_quartiles(df, numeric_columns)
+    
+    # Bucketize columns
+    df = bucketize_columns(df, bins)
+
+    # Generate training and test data
+    training_data, test_data, test_labels = generate_training_and_test_data(df, training_labels)
+    
+    # Train the random forest
+    rf = RandomForest(n_trees=100, max_features="sqrt")
+    rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+
+    # Make predictions on the test set
+    tree_predictions, forest_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
+
+    # Display results
+    display_results(test_data, test_labels, forest_prediction)
+
+    # Calculate and display metrics
+    display_metrics(test_labels, forest_prediction)
+
+
+    #Extra - (sus) proxy for likelihood of liking a song
+    track_num = 1886 #pick song you want here! //TODO: maybe add a way to reverse search song titles to get this indexing...
+    mean_value = rf.enjoyment_prob(tree_predictions, track_num)
+    print(f"Mean value for track number {track_num}: {mean_value}")
