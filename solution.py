@@ -15,8 +15,12 @@ from decision import DecisionBranch, DecisionLeaf, DecisionNode
 # Ignore specific FutureWarning
 warnings.filterwarnings("ignore", category=FutureWarning, message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated")
 
-# Load the access token from the saved JSON file
 def get_access_token():
+    """Get the access token from the saved JSON file
+    
+    Returns:
+        str: Access token for Spotify API
+    """
     try:
         with open('spotify_token.json', 'r') as token_file:
             tokens = json.load(token_file)
@@ -25,8 +29,15 @@ def get_access_token():
         print("Token file not found. Ensure you have completed the authorization.")
         return None
 
-# Function to get user's saved tracks
 def get_all_saved_tracks(access_token):
+    """Get all saved tracks for the user
+    
+    Args:
+        access_token (str): Access token for Spotify API
+
+    Returns:
+        list: List of all saved tracks
+    """
     url = "https://api.spotify.com/v1/me/top/tracks"
     headers = {
         'Authorization': f'Bearer {access_token}'
@@ -73,8 +84,16 @@ def get_all_saved_tracks(access_token):
 
     return all_tracks
 
-# Function to get audio features for multiple tracks
 def get_audio_features(access_token, track_ids):
+    """Get audio features for multiple tracks
+    
+    Args:
+        access_token (str): Access token for Spotify API
+        track_ids (list): List of track IDs
+
+    Returns:
+        list: List of audio features for the tracks
+    """
     url = "https://api.spotify.com/v1/audio-features"
     headers = {
         'Authorization': f'Bearer {access_token}'
@@ -121,8 +140,15 @@ def get_audio_features(access_token, track_ids):
     
     return audio_features
 
-# Retrieve user's tracks and audio features
 def fetch_tracks(access_token):
+    """Fetch all saved tracks and their audio features
+    
+    Args:
+        access_token (str): Access token for Spotify API
+
+    Returns:
+        pd.DataFrame: DataFrame of all saved tracks with audio features
+    """
     if access_token:
         print("Fetching all saved tracks...")
         all_tracks = get_all_saved_tracks(access_token)
@@ -163,8 +189,17 @@ def fetch_tracks(access_token):
 
     return df
 
-# Function to search for a song and retrieve its audio features
+# No longer used in the final implementation due to API changes eliminating access to Audio Features
 def search_song(search_term, access_token):
+    """Search for a song and retrieve its audio features
+    
+    Args:
+        search_term (str): Search term for the song
+        access_token (str): Access token for Spotify API
+
+    Returns:
+        pd.DataFrame: DataFrame of the inputted song with audio features
+    """
     track = {}
 
     url = "https://api.spotify.com/v1/search"
@@ -222,8 +257,16 @@ def search_song(search_term, access_token):
 
     return df_new_song
 
-# Function to search for a song and retrieve its id
 def search_song_v2(search_term, access_token):
+    """Search for a song and retrieve its id
+    
+    Args:
+        search_term (str): Search term for the song
+        access_token (str): Access token for Spotify API
+
+    Returns:
+        str: ID of the inputted song
+    """
     url = "https://api.spotify.com/v1/search"
     headers = {
         'Authorization': f'Bearer {access_token}'
@@ -245,8 +288,16 @@ def search_song_v2(search_term, access_token):
 
     return id
 
-# Return the most similar song using cosine similarity
 def song_similarity(song_data, new_song):
+    """Return the most similar song to the inputted song
+    
+    Args:
+        song_data (pd.DataFrame): DataFrame of all songs
+        new_song (pd.DataFrame): DataFrame of the input
+    
+    Returns:
+        tuple: Most similar song and artist
+    """
     tracks = song_data.copy()
 
     # Find attributes of new song given by user
@@ -267,6 +318,12 @@ def song_similarity(song_data, new_song):
     return most_similar_song["track_name"], most_similar_song["artist"]
 
 def most_similar_songs(training_tracks, test_tracks):
+    """Find the most similar songs to the test songs
+    
+    Args:
+        training_tracks (pd.DataFrame): DataFrame of training tracks
+        test_tracks (pd.DataFrame): DataFrame of test
+    """
     song_similarity_results = []
 
     for index, test_song in test_tracks.iterrows():
@@ -284,7 +341,16 @@ def most_similar_songs(training_tracks, test_tracks):
     print(song_similarity_df)
 
 def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
-    """Return the expected reduction in entropy from splitting X,y by attr"""
+    """Return the expected reduction in entropy from splitting X,y by attr
+    
+    Args:
+        X (pd.DataFrame): Table of examples (as DataFrame)
+        y (pd.Series): array-like example labels (target values)
+        attr (str): Attribute to split on
+
+    Returns:
+        float: Expected reduction in entropy
+    """
     # Calculate entropy before the split
     entropy = -sum([p * np.log2(p) for p in y.value_counts(normalize=True)])
     
@@ -337,7 +403,15 @@ def learn_decision_tree(
         return tree
 
 def predict(tree: DecisionNode, X: pd.DataFrame):
-    """Return array-like predctions for examples, X and Decision Tree, tree"""
+    """Return array-like predctions for examples, X and Decision Tree, tree
+    
+    Args:
+        tree (DecisionNode): Decision Tree
+        X (pd.DataFrame): Table of examples (as DataFrame)
+
+    Returns:
+        pd.Series: Predicted labels for examples
+    """
 
     # You can change the implementation of this function, but do not modify the signature
 
@@ -372,12 +446,28 @@ def compute_metrics(y_true, y_pred):
     }
 
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
-    """Assigns labels to a dataframe based on the rank of the row"""
+    """Assigns labels to a dataframe based on the rank of the row
+    
+    Args:
+        df (pd.DataFrame): DataFrame to assign labels to
+        rank_column (str): Column to use for ranking
+
+    Returns:
+        pd.Series: Series of labels based on the rank
+    """
     labels = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
     return labels
 
 def generate_bins_from_quartiles(df, columns):
-    """Automatically generate 4 bins for numeric columns using quartiles"""
+    """Automatically generate 4 bins for numeric columns using quartiles
+    
+    Args:
+        df (pd.DataFrame): DataFrame to generate bins for
+        columns (list): List of columns to generate bins for
+
+    Returns:
+        dict: Dictionary of column names and their bin edges
+    """
     bins = {}
     for column in columns:
         if column not in ["mode", "explicit"]:
@@ -385,7 +475,15 @@ def generate_bins_from_quartiles(df, columns):
     return bins
 
 def bucketize_columns(data: pd.DataFrame, bins: dict):
-    """Bucketize the columns in the dataframe based on the bins provided"""
+    """Bucketize the columns in the dataframe based on the bins provided
+    
+    Args:
+        data (pd.DataFrame): DataFrame to bucketize
+        bins (dict): Dictionary of column names and their bin edges
+
+    Returns:
+        pd.DataFrame: Bucketized DataFrame
+    """
     for column, bin_edges in bins.items():
         bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
         data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
@@ -397,7 +495,16 @@ def bucketize_columns(data: pd.DataFrame, bins: dict):
     return data
 
 def generate_training_and_test_data(df, tests=5, test_song=None):
-    """Generate training and test data from the DataFrame"""
+    """Generate training and test data from the DataFrame
+    
+    Args:
+        df (pd.DataFrame): DataFrame to generate data from
+        tests (int): Number of test songs to select
+        test_song (pd.DataFrame): DataFrame of the inputted song
+
+    Returns:
+        tuple: Training and test data
+    """
     # Assign labels based on their ranks
     training_labels = assign_labels_by_rank(df, rank_column="rank")
     # Create bins based on quartiles for int and float dtype columns
@@ -419,7 +526,14 @@ def generate_training_and_test_data(df, tests=5, test_song=None):
     return training_tracks, test_tracks, training_data, training_labels, test_data, test_labels
 
 def display_results(test_data, test_labels, pred_labels, pred_mean):
-    """Display the results of the predictions"""
+    """Display the results of the predictions
+    
+    Args:
+        test_data (pd.DataFrame): DataFrame of test data
+        test_labels (pd.Series): Series of true labels
+        pred_labels (pd.Series): Series of predicted labels
+        pred_mean (pd.Series): Series of mean predictions
+    """
     # Create a DataFrame to store the song name, true label, and predicted label
     results = pd.DataFrame({
         "track_name": test_data["track_name"],
@@ -455,7 +569,12 @@ def display_results(test_data, test_labels, pred_labels, pred_mean):
     print("Difference Table:\n", difference_table)
 
 def display_metrics(test_labels, pred_labels):
-    """Calculate and display metrics to evaluate predictions"""
+    """Calculate and display metrics to evaluate predictions
+    
+    Args:
+        test_labels (pd.Series): Series of true labels
+        pred_labels (pd.Series): Series of predicted
+    """
     # Compute and print accuracy metrics
     predict_metrics = compute_metrics(test_labels, pred_labels)
     for met, val in predict_metrics.items():
@@ -500,12 +619,12 @@ if __name__ == "__main__":
     else:
         print("Failed to obtain access token.")
 
-    # Step 4: Fetch all saved tracks and audio features, then combine into a DataFrame
-    # tracks = fetch_tracks(access_token)
-    tracks = pd.read_json("tracks.json") # to avoid fetching tracks every time
-
-    # Step 5: Terminate the Flask server once tracks are returned
+    # Step 4: Terminate the Flask server once tracks are returned
     flask_process.terminate()
+
+    # Step 5: Fetch all saved tracks and audio features, then combine into a DataFrame
+    # tracks = fetch_tracks(access_token)
+    tracks = pd.read_json("data/tracks.json") # to avoid fetching tracks every time
 
     # Step 6: Retrieve audio features of inputted song and remove it from training data
     # new_song = search_song(inputted_song, access_token)
@@ -525,12 +644,9 @@ if __name__ == "__main__":
     # Train the random forest
     rf = RandomForest(n_trees=100, max_features="sqrt")
     rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
-
     # Make predictions on the test set
     tree_predictions, forest_prediction, mean_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
 
-    # Display results
+    # Step 10: Display results and metrics
     display_results(test_data, test_labels, forest_prediction, mean_prediction)
-
-    # Calculate and display metrics
     display_metrics(test_labels, forest_prediction)
