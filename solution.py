@@ -420,31 +420,6 @@ def predict(tree: DecisionNode, X: pd.DataFrame):
     # should be applied to all rows.
     return X.apply(lambda row: tree.predict(row), axis=1)
 
-def compute_metrics(y_true, y_pred):
-    """Compute metrics to evaluate binary classification accuracy
-
-    Args:
-        y_true: Array-like ground truth (correct) target values.
-        y_pred: Array-like estimated targets as returned by a classifier.
-
-    Returns:
-        dict: Dictionary of metrics in including confusion matrix, accuracy, recall, precision and F1
-    """
-    # Mean Absolute Error
-    mae = metrics.mean_absolute_error(y_true, y_pred)
-    
-    # Proximity Score (normalized MAE)
-    proximity_score = 1 - (mae / 4)
-
-    return {
-        "confusion": metrics.confusion_matrix(y_true, y_pred),
-        "accuracy": metrics.accuracy_score(y_true, y_pred),
-        "recall": metrics.recall_score(y_true, y_pred, average='macro'),
-        "precision": metrics.precision_score(y_true, y_pred, average='macro'),
-        "f1": metrics.f1_score(y_true, y_pred, average='macro'),
-        "proximity_score": proximity_score,
-    }
-
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
     """Assigns labels to a dataframe based on the rank of the row
     
@@ -533,6 +508,9 @@ def display_results(test_data, test_labels, pred_labels, pred_mean):
         test_labels (pd.Series): Series of true labels
         pred_labels (pd.Series): Series of predicted labels
         pred_mean (pd.Series): Series of mean predictions
+
+    Returns:
+        pd.Series: Series of absolute differences between true and predicted labels
     """
     # Create a DataFrame to store the song name, true label, and predicted label
     results = pd.DataFrame({
@@ -559,6 +537,9 @@ def display_results(test_data, test_labels, pred_labels, pred_mean):
     # Count the occurrences of each difference
     difference_counts = results["difference"].value_counts().sort_index()
 
+    # Reindex difference_counts to include all possible difference values and fill missing values with zeros
+    difference_counts = difference_counts.reindex(range(5), fill_value=0)
+
     # Create a table to display the results
     difference_table = pd.DataFrame({
         "Difference": difference_counts.index,
@@ -568,16 +549,96 @@ def display_results(test_data, test_labels, pred_labels, pred_mean):
     # Print the difference table
     print("Difference Table:\n", difference_table)
 
-def display_metrics(test_labels, pred_labels):
+    return difference_counts
+
+def compute_metrics(y_true, y_pred):
+    """Compute metrics to evaluate binary classification accuracy
+
+    Args:
+        y_true: Array-like ground truth (correct) target values.
+        y_pred: Array-like estimated targets as returned by a classifier.
+
+    Returns:
+        tuple: confusion matrix, accuracy, recall, precision, f1, proximity_score
+    """
+    # Mean Absolute Error
+    mae = metrics.mean_absolute_error(y_true, y_pred)
+
+    confusion = metrics.confusion_matrix(y_true, y_pred, labels = [0, 1, 2, 3, 4])
+    accuracy = metrics.accuracy_score(y_true, y_pred)
+    recall = metrics.recall_score(y_true, y_pred, average='macro')
+    precision = metrics.precision_score(y_true, y_pred, average='macro')
+    f1 = metrics.f1_score(y_true, y_pred, average='macro')
+
+    # Binarize the results: correct if within 1 of the true label
+    y_true_binary = np.array(y_true)
+    y_pred_binary = np.array(y_pred)
+    correct_within_1 = np.abs(y_true_binary - y_pred_binary) <= 1
+    y_true_binary = np.ones_like(y_true_binary)
+    y_pred_binary = correct_within_1.astype(int)
+
+    binary_accuracy = metrics.accuracy_score(y_true_binary, y_pred_binary)
+    binary_recall = metrics.recall_score(y_true_binary, y_pred_binary)
+    binary_precision = metrics.precision_score(y_true_binary, y_pred_binary)
+    binary_f1 = metrics.f1_score(y_true_binary, y_pred_binary)
+
+    proximity_score = 1 - (mae / 4) # Proximity Score (normalized MAE)
+
+    return confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score
+
+def sum_metrics(y_true, y_pred, confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum, difference_counts):
+    """Sum the metrics to evaluate binary classification accuracy
+
+    Args:
+        y_true: Array-like ground truth (correct) target values.
+        y_pred: Array-like estimated targets as returned by a classifier.
+        confusion: Confusion matrix
+        accuracy: Accuracy score
+        recall: Recall score
+        precision: Precision score
+        f1: F1 score
+        binary_accuracy: Binary accuracy score
+        binary_recall: Binary recall score
+        binary_precision: Binary precision score
+        binary_f1: Binary F1 score
+        proximity_score: Proximity score
+        difference_counts_accum: Series of sum of difference counts
+        difference_counts: Series of absolute differences between true and predicted labels
+
+    Returns:
+        tuple: confusion matrix, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts
+    """
+    trial_confusion, trial_accuracy, trial_recall, trial_precision, trial_f1, trial_binary_accuracy, trial_binary_recall, trial_binary_precision, trial_binary_f1, trial_proximity_score = compute_metrics(y_true, y_pred)
+    confusion += trial_confusion
+    accuracy += trial_accuracy
+    recall += trial_recall
+    precision += trial_precision
+    f1 += trial_f1
+    binary_accuracy += trial_binary_accuracy
+    binary_recall += trial_binary_recall
+    binary_precision += trial_binary_precision
+    binary_f1 += trial_binary_f1
+    proximity_score += trial_proximity_score
+    difference_counts_accum += difference_counts.values
+
+    return confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum
+
+def display_metrics(metrics, difference_counts):
     """Calculate and display metrics to evaluate predictions
     
     Args:
         test_labels (pd.Series): Series of true labels
         pred_labels (pd.Series): Series of predicted
     """
-    # Compute and print accuracy metrics
-    predict_metrics = compute_metrics(test_labels, pred_labels)
-    for met, val in predict_metrics.items():
+    difference_table = pd.DataFrame({
+        "Difference": [0, 1, 2, 3, 4],
+        "Count": difference_counts
+    })
+
+    # Print the difference table
+    print("Difference Table:\n", difference_table)
+
+    for met, val in metrics.items():
         # Format the metric name
         formatted_met = met.replace('_', ' ').title()
         print(
@@ -597,12 +658,19 @@ if __name__ == "__main__":
         help="Search term for the inputted song",
     )
     parser.add_argument(
+        "-n",
+        "--number",
+        help="Number of test songs to select",
+    )
+    parser.add_argument(
         "-t",
         "--tests",
-        help="Number of test songs to select",
+        default=1,
+        help="Number of tests to run",
     )
     args = parser.parse_args()
     inputted_song = args.song
+    tests = int(args.tests)
 
     # Step 1: Start Flask server for Spotify authentication
     flask_process = subprocess.Popen(['python', 'spotify-login.py'])
@@ -632,21 +700,41 @@ if __name__ == "__main__":
     test_song = tracks.loc[tracks["track_id"] == test_song_id]
     if test_song.empty and inputted_song:
         print("Inputted song not found in training data.")
-    tests = 0 if not test_song.empty and not args.tests else int(args.tests) if args.tests else 5
+    number = 0 if not test_song.empty and not args.number else int(args.number) if args.number else 5
+    
+    confusion = np.zeros((5, 5))
+    accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score = 0, 0, 0, 0, 0, 0, 0, 0, 0
+    difference_counts_accum = [0, 0, 0, 0, 0]
 
-    # Step 7: Generate training and test data
-    training_tracks, test_tracks, training_data, training_labels, test_data, test_labels = generate_training_and_test_data(tracks, tests, test_song)
+    for _ in range(tests):
+        # Step 7: Generate training and test data
+        training_tracks, test_tracks, training_data, training_labels, test_data, test_labels = generate_training_and_test_data(tracks, number, test_song)
 
-    # Step 8: Determine most similar songs
-    most_similar_songs(training_tracks, test_tracks)
+        # Step 8: Determine most similar songs
+        most_similar_songs(training_tracks, test_tracks)
 
-    # Step 9: Predict likelihood of enjoyment
-    # Train the random forest
-    rf = RandomForest(n_trees=100, max_features="sqrt")
-    rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
-    # Make predictions on the test set
-    tree_predictions, forest_prediction, mean_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
+        # Step 9: Predict likelihood of enjoyment
+        # Train the random forest
+        rf = RandomForest(n_trees=100, max_features="sqrt")
+        rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+        # Make predictions on the test set
+        tree_predictions, forest_prediction, mean_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
 
-    # Step 10: Display results and metrics
-    display_results(test_data, test_labels, forest_prediction, mean_prediction)
-    display_metrics(test_labels, forest_prediction)
+        # Step 10: Display results and calculate metrics
+        difference_counts = display_results(test_data, test_labels, forest_prediction, mean_prediction)
+        confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum = sum_metrics(test_labels, forest_prediction, confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum, difference_counts)
+
+    # Step 11: Display metrics
+    average_metrics = {
+        "confusion": confusion / tests,
+        "accuracy": accuracy / tests,
+        "recall": recall / tests,
+        "precision": precision / tests,
+        "f1": f1 / tests,
+        "binary_accuracy": binary_accuracy / tests,
+        "binary_recall": binary_recall / tests,
+        "binary_precision": binary_precision / tests,
+        "binary_f1": binary_f1 / tests,
+        "proximity_score": proximity_score / tests,
+    }   
+    display_metrics(average_metrics, difference_counts_accum / tests)
