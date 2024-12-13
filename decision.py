@@ -42,6 +42,20 @@ class DecisionBranch:
             print(" " * 4 * indent, self.attr, "=", val, "->", end=" ")
             subtree.display(indent + 1)
 
+    def feature_importance(self, depth=0, features=None):
+        """Collect and print feature importance ranking for decision tree"""
+        if features is None:
+            features = []
+        if self.attr not in features:
+            features.append(self.attr)
+        for val, subtree in self.branches.items():
+            if isinstance(subtree, DecisionBranch):
+                subtree.feature_importance(depth + 1, features)
+        if depth == 0:  # Only print once at the end of the recursion
+            print("Feature Importance Order:")
+            for rank, feature in enumerate(features):
+                print(f"{rank + 1}: {feature}")
+
 class DecisionLeaf:
     """Leaf node in decision tree"""
 
@@ -60,6 +74,10 @@ class DecisionLeaf:
     def display(self, indent=0):
         """Pretty print tree starting at optional indent"""
         print("Label=", self.label)
+
+    def feature_importance(self, depth=0, features=None):
+        """Leaf nodes do not contribute to feature importance"""
+        pass
 
 def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
     """Return the expected reduction in entropy from splitting X,y by attr"""

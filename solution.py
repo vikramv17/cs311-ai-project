@@ -298,12 +298,12 @@ def song_similarity(song_data, new_song):
     Returns:
         tuple: Most similar song and artist
     """
-    tracks = song_data.copy()
+    similarity_tracks = song_data.copy()
 
     # Find attributes of new song given by user
     features = ["acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
 
-    all_songs_feature_matrix = tracks[features].values
+    all_songs_feature_matrix = similarity_tracks[features].values
     new_song_feature_matrix = new_song[features].values.flatten()
 
     dot_product = np.dot(all_songs_feature_matrix, new_song_feature_matrix)
@@ -311,8 +311,8 @@ def song_similarity(song_data, new_song):
 
     cosine_similarity = dot_product / magnitudes
 
-    tracks["cosine_similarity"] = cosine_similarity
-    sorted_similarity = tracks.sort_values(by="cosine_similarity", ascending=False)
+    similarity_tracks["cosine_similarity"] = cosine_similarity
+    sorted_similarity = similarity_tracks.sort_values(by="cosine_similarity", ascending=False)
     most_similar_song = sorted_similarity.iloc[0]
 
     return most_similar_song["track_name"], most_similar_song["artist"]
@@ -402,24 +402,6 @@ def learn_decision_tree(
 
         return tree
 
-def predict(tree: DecisionNode, X: pd.DataFrame):
-    """Return array-like predctions for examples, X and Decision Tree, tree
-    
-    Args:
-        tree (DecisionNode): Decision Tree
-        X (pd.DataFrame): Table of examples (as DataFrame)
-
-    Returns:
-        pd.Series: Predicted labels for examples
-    """
-
-    # You can change the implementation of this function, but do not modify the signature
-
-    # Invoke prediction method on every row in dataframe. `lambda` creates an anonymous function
-    # with the specified arguments (in this case a row). The axis argument specifies that the function
-    # should be applied to all rows.
-    return X.apply(lambda row: tree.predict(row), axis=1)
-
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
     """Assigns labels to a dataframe based on the rank of the row
     
@@ -481,24 +463,27 @@ def generate_training_and_test_data(df, tests=5, test_song=None):
         tuple: Training and test data
     """
     # Assign labels based on their ranks
-    training_labels = assign_labels_by_rank(df, rank_column="rank")
+    labels = assign_labels_by_rank(df, rank_column="rank")
     # Create bins based on quartiles for int and float dtype columns
     numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
-    bins = generate_bins_from_quartiles(tracks, numeric_columns)
+    bins = generate_bins_from_quartiles(df, numeric_columns)
 
     # Generate training and test data
     training_tracks = df.drop(columns=["rank", "track_id", "album_name"])
     test_tracks = df.sample(n=tests, random_state=random.randint(1, 10000))
     test_tracks = pd.concat([test_tracks, test_song], ignore_index=False)
-    test_labels = training_labels.loc[test_tracks.index]
+    test_labels = labels.loc[test_tracks.index]
     training_tracks = training_tracks.drop(test_tracks.index).reset_index(drop=True)
-    training_labels = training_labels.drop(test_tracks.index).reset_index(drop=True)
+    training_labels = labels.drop(test_tracks.index).reset_index(drop=True)
+
+    # Create a copy of the DataFrame to store the tree tracks
+    tree_tracks = bucketize_columns(df.drop(columns=["rank", "track_name", "artist", "track_id", "album_name"]), bins)
 
     # Bucketize columns
     training_data = bucketize_columns(training_tracks, bins)
     test_data = bucketize_columns(test_tracks, bins)
 
-    return training_tracks, test_tracks, training_data, training_labels, test_data, test_labels
+    return training_tracks, test_tracks, training_data, training_labels, test_data, test_labels, tree_tracks, labels
 
 def display_results(test_data, test_labels, pred_labels, pred_mean):
     """Display the results of the predictions
@@ -705,7 +690,7 @@ if __name__ == "__main__":
 
     for _ in range(tests):
         # Step 7: Generate training and test data
-        training_tracks, test_tracks, training_data, training_labels, test_data, test_labels = generate_training_and_test_data(tracks, number, test_song)
+        training_tracks, test_tracks, training_data, training_labels, test_data, test_labels, tree_tracks, tree_labels = generate_training_and_test_data(tracks, number, test_song)
 
         # Step 8: Determine most similar songs
         most_similar_songs(training_tracks, test_tracks)
@@ -721,7 +706,11 @@ if __name__ == "__main__":
         difference_counts = display_results(test_data, test_labels, forest_prediction, mean_prediction)
         confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum = sum_metrics(test_labels, forest_prediction, confusion, accuracy, recall, precision, f1, binary_accuracy, binary_recall, binary_precision, binary_f1, proximity_score, difference_counts_accum, difference_counts)
 
-    # Step 11: Display metrics
+    # Step 11: Display feature importance ranking
+    tree = learn_decision_tree(tree_tracks, tree_labels, tree_tracks.columns, tree_labels)
+    tree.feature_importance()
+
+    # Step 12: Display metrics
     average_metrics = {
         "confusion": confusion / tests,
         "accuracy": accuracy / tests,
