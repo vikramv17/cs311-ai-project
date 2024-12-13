@@ -570,12 +570,9 @@ def compute_metrics(y_true, y_pred):
     precision = metrics.precision_score(y_true, y_pred, average='macro')
     f1 = metrics.f1_score(y_true, y_pred, average='macro')
 
-    # Binarize the results: correct if within 1 of the true label
-    y_true_binary = np.array(y_true)
-    y_pred_binary = np.array(y_pred)
-    correct_within_1 = np.abs(y_true_binary - y_pred_binary) <= 1
-    y_true_binary = np.ones_like(y_true_binary)
-    y_pred_binary = correct_within_1.astype(int)
+    # Binarize true and predicted labels: 0 (dislike) if label is 2, 3, or 4; 1 (like) if label is 0 or 1
+    y_true_binary = np.where(np.isin(y_true, [0, 1]), 1, 0)
+    y_pred_binary = np.where(np.isin(y_pred, [0, 1]), 1, 0)
 
     binary_accuracy = metrics.accuracy_score(y_true_binary, y_pred_binary)
     binary_recall = metrics.recall_score(y_true_binary, y_pred_binary)
