@@ -3,7 +3,7 @@
 # Instructions
 The primary solution code is in solution.py. To run, type `python solution.py -n 100` in the console. `-n` indicates how large the sample (test) group should be. To us search functionality add `-s "Song Name"`. This will only search from among the existing data due to the recent API changes that limit our access to Spotify data. The code for the audio feature fetch and old search functionality (pre API change) remains in the code but is no longer called. `-t` indicates how many tests to run so `-t 10` for example will run 10 tests and output the average of the metrics across the tests.
 
-Running the code will not work without out Spotify secrets which are not included in this repository. To bypass the Spotify integration comment out Steps 1-4 and Step 6 in the solution and add the following lines after Step 6:
+Running the code will not work without out Spotify secrets which are not included in this repository. To bypass the Spotify integration comment out Step 2 and Step 4 in the solution and add the following lines after Step 4:
 
 `tests = int(args.tests)`
 

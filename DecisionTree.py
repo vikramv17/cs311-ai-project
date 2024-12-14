@@ -45,16 +45,22 @@ class DecisionBranch:
     def feature_importance(self, depth=0, features=None):
         """Collect and print feature importance ranking for decision tree"""
         if features is None:
-            features = []
+            features = {}
         if self.attr not in features:
-            features.append(self.attr)
+            features[self.attr] = []
+        features[self.attr].append(depth)
         for val, subtree in self.branches.items():
             if isinstance(subtree, DecisionBranch):
                 subtree.feature_importance(depth + 1, features)
-        if depth == 0:  # Only print once at the end of the recursion
+        if depth == 0:  # Only process once at the end of the recursion
+            # Calculate average depth for each feature
+            avg_depths = {feature: sum(depths) / len(depths) for feature, depths in features.items()}
+            # Create a DataFrame
+            df = pd.DataFrame(list(avg_depths.items()), columns=['Feature', 'Average Depth'])
+            df['Rank'] = df['Average Depth'].rank(method='dense', ascending=True).astype(int)
+            df = df[['Rank', 'Feature', 'Average Depth']].sort_values(by='Rank').reset_index(drop=True)
             print("Feature Importance Order:")
-            for rank, feature in enumerate(features):
-                print(f"{rank + 1}: {feature}")
+            print(df.to_string(index=False))
 
 class DecisionLeaf:
     """Leaf node in decision tree"""
@@ -80,7 +86,16 @@ class DecisionLeaf:
         pass
 
 def information_gain(X: pd.DataFrame, y: pd.Series, attr: str) -> float:
-    """Return the expected reduction in entropy from splitting X,y by attr"""
+    """Return the expected reduction in entropy from splitting X,y by attr
+    
+    Args:
+        X (pd.DataFrame): Table of examples (as DataFrame)
+        y (pd.Series): array-like example labels (target values)
+        attr (str): Attribute to split on
+
+    Returns:
+        float: Expected reduction in entropy
+    """
     # Calculate entropy before the split
     entropy = -sum([p * np.log2(p) for p in y.value_counts(normalize=True)])
     
@@ -174,12 +189,28 @@ def compute_metrics(y_true, y_pred):
     }
 
 def assign_labels_by_rank(df: pd.DataFrame, rank_column: str = "rank"):
-    """Assigns labels to a dataframe based on the rank of the row"""
+    """Assigns labels to a dataframe based on the rank of the row
+    
+    Args:
+        df (pd.DataFrame): DataFrame to assign labels to
+        rank_column (str): Column to use for ranking
+
+    Returns:
+        pd.Series: Series of labels based on the rank
+    """
     labels = pd.qcut(df[rank_column], q=5, labels=[0, 1, 2, 3, 4])
     return labels
 
 def generate_bins_from_quartiles(df, columns):
-    """Automatically generate 4 bins for numeric columns using quartiles"""
+    """Automatically generate 4 bins for numeric columns using quartiles
+    
+    Args:
+        df (pd.DataFrame): DataFrame to generate bins for
+        columns (list): List of columns to generate bins for
+
+    Returns:
+        dict: Dictionary of column names and their bin edges
+    """
     bins = {}
     for column in columns:
         if column not in ["mode", "explicit"]:
@@ -187,7 +218,15 @@ def generate_bins_from_quartiles(df, columns):
     return bins
 
 def bucketize_columns(data: pd.DataFrame, bins: dict):
-    """Bucketize the columns in the dataframe based on the bins provided"""
+    """Bucketize the columns in the dataframe based on the bins provided
+    
+    Args:
+        data (pd.DataFrame): DataFrame to bucketize
+        bins (dict): Dictionary of column names and their bin edges
+
+    Returns:
+        pd.DataFrame: Bucketized DataFrame
+    """
     for column, bin_edges in bins.items():
         bin_labels = range(len(bin_edges) - 1)  # Generate labels for bins
         data[column] = pd.cut(data[column], bins=bin_edges, labels=bin_labels, include_lowest=True)
@@ -263,7 +302,7 @@ def display_metrics(test_labels, pred_labels):
 
 if __name__ == "__main__":
     # Load the data from a JSON file into a pandas DataFrame
-    with open("tracks.json", "r") as f:
+    with open("data/tracks.json", "r") as f:
         data = json.load(f)
     df = pd.DataFrame(data)
     

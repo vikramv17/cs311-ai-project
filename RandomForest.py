@@ -2,8 +2,8 @@ import math
 import numpy as np
 import json
 import pandas as pd
-from typing import List, Sequence, Union
-from decision import learn_decision_tree, assign_labels_by_rank, generate_bins_from_quartiles, bucketize_columns, generate_training_and_test_data, predict, display_results, display_metrics
+from typing import List, Union
+import DecisionTree as dt
 
 class RandomForest:
     #use sklearn's defaults
@@ -39,7 +39,7 @@ class RandomForest:
             sampled_X, sampled_y = self.bootstrapping(X,y)
             
     
-            tree = learn_decision_tree(
+            tree = dt.learn_decision_tree(
                 X=sampled_X,
                 y=sampled_y,
                 attrs=np.random.choice(X.columns, self.max_features, replace=False),
@@ -50,7 +50,7 @@ class RandomForest:
         
     def forest_predict(self, X: pd.DataFrame) -> tuple:
         #predictions from all trees (columns are index of tree, row values are the predicted labels for given sample)
-        tree_predictions = pd.DataFrame({i: predict(tree, X) for i, tree in enumerate(self.trees)})
+        tree_predictions = pd.DataFrame({i: dt.predict(tree, X) for i, tree in enumerate(self.trees)})
 
         # Majority label
         majority_label = tree_predictions.mode(axis=1)[0]
@@ -62,39 +62,33 @@ class RandomForest:
 
 if __name__ == "__main__":
     # Load the data from a JSON file into a pandas DataFrame
-    with open("tracks.json", "r") as f:
+    with open("data/tracks.json", "r") as f:
         data = json.load(f)
     df = pd.DataFrame(data)
     
     # Assign labels based on their ranks
-    training_labels = assign_labels_by_rank(df, rank_column="rank")
+    training_labels = dt.assign_labels_by_rank(df, rank_column="rank")
     print("Data with Labels:\n", df)
     
     # Create bins based on quartiles for int and float dtype columns
     numeric_columns = ["duration_ms", "explicit", "popularity", "acousticness", "danceability", "energy", "instrumentalness", "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence"]
-    bins = generate_bins_from_quartiles(df, numeric_columns)
+    bins = dt.generate_bins_from_quartiles(df, numeric_columns)
     
     # Bucketize columns
-    df = bucketize_columns(df, bins)
+    df = dt.bucketize_columns(df, bins)
 
     # Generate training and test data
-    training_data, test_data, test_labels = generate_training_and_test_data(df, training_labels)
+    training_data, test_data, test_labels = dt.generate_training_and_test_data(df, training_labels)
     
     # Train the random forest
     rf = RandomForest(n_trees=100, max_features="sqrt")
     rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
 
     # Make predictions on the test set
-    tree_predictions, forest_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
+    tree_predictions, forest_prediction, mean_prediction = rf.forest_predict(test_data.drop(columns=["track_name", "artist"]))
 
     # Display results
-    display_results(test_data, test_labels, forest_prediction)
+    dt.display_results(test_data, test_labels, forest_prediction)
 
     # Calculate and display metrics
-    display_metrics(test_labels, forest_prediction)
-
-
-    #Extra - (sus) proxy for likelihood of liking a song
-    track_num = 1886 #pick song you want here! //TODO: maybe add a way to reverse search song titles to get this indexing...
-    mean_value = rf.enjoyment_prob(tree_predictions, track_num)
-    print(f"Mean value for track number {track_num}: {mean_value}")
+    dt.display_metrics(test_labels, forest_prediction)
