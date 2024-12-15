@@ -6,17 +6,16 @@ from typing import List, Union
 import DecisionTree as dt
 
 class RandomForest:
-    #use sklearn's defaults
-    def __init__(self, n_trees: int = 100, max_features: Union[str, int] = "sqrt"):
+    def __init__(self, n_trees: int = 150, max_depth = 5): #defaults determined after hyperparameter tuning
         """Create Random Forest
 
         Args:
             n_trees (int): Number of trees in forest
-            max_features (str): Number of features to consider when looking for best split
+            max_depth(str): Max depth for individual trees
         """
         #hyperparameters
         self.n_trees = n_trees
-        self.max_features = max_features
+        self.max_depth = max_depth
 
         self.trees = []
 
@@ -27,28 +26,21 @@ class RandomForest:
         
     def fit(self, X: pd.DataFrame, y: pd.Series):
         """Train random forest on the dataset."""
-        n_samples, n_features = X.shape
-
-        if self.max_features == "sqrt":
-            self.max_features = int(math.sqrt(n_features))
-
-        elif self.max_features == "log2":
-            self.max_features = int(np.log2(n_features))
 
         for _ in range(self.n_trees):
             sampled_X, sampled_y = self.bootstrapping(X,y)
             
-    
-            tree = dt.learn_decision_tree(
+            tree = dt.fit(
                 X=sampled_X,
                 y=sampled_y,
-                attrs=np.random.choice(X.columns, self.max_features, replace=False),
-                y_parent=sampled_y
+                max_features = int(math.sqrt(len(sampled_X.columns))), #sklearn's default, log2 wasn't making a much of difference in runtime or correctness
+                max_depth= self.max_depth
             )
 
             self.trees.append(tree)
         
     def forest_predict(self, X: pd.DataFrame) -> tuple:
+        """Get all tree predictions, forest prediction, mean prediction of all tree predictions"""
         #predictions from all trees (columns are index of tree, row values are the predicted labels for given sample)
         tree_predictions = pd.DataFrame({i: dt.predict(tree, X) for i, tree in enumerate(self.trees)})
 
@@ -81,7 +73,7 @@ if __name__ == "__main__":
     training_data, test_data, test_labels = dt.generate_training_and_test_data(df, training_labels)
     
     # Train the random forest
-    rf = RandomForest(n_trees=100, max_features="sqrt")
+    rf = RandomForest(n_trees=150, max_depth=5)
     rf.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
 
     # Make predictions on the test set

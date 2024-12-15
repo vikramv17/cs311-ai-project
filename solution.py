@@ -239,7 +239,7 @@ if __name__ == "__main__":
         
         # Step 7: Predict likelihood of enjoyment
         # Train the random forest
-        forest = rf.RandomForest(n_trees=100, max_features="sqrt")
+        forest = rf.RandomForest(n_trees=150, max_depth=5)
         forest.fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
         # Make predictions on the test set
         tree_predictions, forest_prediction, mean_prediction = forest.forest_predict(test_data.drop(columns=["track_name", "artist"]))
@@ -249,7 +249,7 @@ if __name__ == "__main__":
         average_metrics = sum_metrics(test_labels, forest_prediction, average_metrics, difference_counts)
 
     # Step 9: Display feature importance ranking
-    tree = dt.learn_decision_tree(tree_tracks, tree_labels, tree_tracks.columns, tree_labels)
+    tree = dt.learn_decision_tree(tree_tracks, tree_labels, tree_tracks.columns, tree_labels, None, None)
     tree.feature_importance()
 
     # Step 10: Display metrics 

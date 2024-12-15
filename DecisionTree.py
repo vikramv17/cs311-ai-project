@@ -1,7 +1,7 @@
 """
 CS311 Programming Assignment 5: Decision Trees
 """
-
+import math
 import argparse, os, random, sys
 from typing import Any, Dict, Sequence, Tuple, Union
 import numpy as np
@@ -113,6 +113,8 @@ def learn_decision_tree(
     y: pd.Series,
     attrs: Sequence[str],
     y_parent: pd.Series,
+    max_features: int = None,
+    max_depth: int = None
 ) -> DecisionNode:
     """Recursively learn the decision tree
 
@@ -131,29 +133,41 @@ def learn_decision_tree(
     elif y.nunique() == 1:
         # Return classification
         return DecisionLeaf(y.iloc[0])
-    elif len(attrs) == 0:
+    elif len(attrs) == 0 or (max_depth is not None and max_depth <= 0):
         # Return plurality of examples
         return DecisionLeaf(y.mode()[0])
     else:
+        # Consider only max_features num attrs at each split or all if max_features not specified
+        if max_features is None:
+            max_features = len(attrs)
+
+        num_features_to_sample = min(max_features, len(attrs))
+        selected_attrs = np.random.choice(attrs, size=num_features_to_sample, replace=False)
+
         # Select attribute with highest information gain
-        a = max(attrs, key=lambda a: information_gain(X, y, a))
+        a = max(selected_attrs, key=lambda a: information_gain(X, y, a))
 
         # Create branch node and recursively learn subtrees
         tree = DecisionBranch(a, {})
         for v, subset in X.groupby(a, observed=False):
             tree.branches[v] = learn_decision_tree(
-                subset, y.loc[subset.index], [attr for attr in attrs if attr != a], y
+                subset, 
+                y.loc[subset.index], 
+                [attr for attr in attrs if attr != a], 
+                y, 
+                max_features, 
+                max_depth=(max_depth - 1) if max_depth is not None else None
             )
 
         return tree
 
-def fit(X: pd.DataFrame, y: pd.Series) -> DecisionNode:
+def fit(X: pd.DataFrame, y: pd.Series, max_features: int, max_depth: int) -> DecisionNode:
     """Return train decision tree on examples, X, with labels, y"""
     # You can change the implementation of this function, but do not modify the signature
-    return learn_decision_tree(X, y, X.columns, y)
+    return learn_decision_tree(X, y, X.columns, y, max_features, max_depth)
 
 def predict(tree: DecisionNode, X: pd.DataFrame):
-    """Return array-like predctions for examples, X and Decision Tree, tree"""
+    """Return array-like predictions for examples, X and Decision Tree, tree"""
 
     # You can change the implementation of this function, but do not modify the signature
 
@@ -320,7 +334,7 @@ if __name__ == "__main__":
     training_data, test_data, test_labels = generate_training_and_test_data(df, training_labels)
 
     # Make tree
-    tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels)
+    tree = fit(training_data.drop(columns=["track_name", "artist"]), training_labels, max_features=None, max_depth=None)
     # tree.display()
 
     # Predict labels for test data with previously learned tree
