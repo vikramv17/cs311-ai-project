@@ -163,7 +163,6 @@ def learn_decision_tree(
 
 def fit(X: pd.DataFrame, y: pd.Series, max_features: int, max_depth: int) -> DecisionNode:
     """Return train decision tree on examples, X, with labels, y"""
-    # You can change the implementation of this function, but do not modify the signature
     return learn_decision_tree(X, y, X.columns, y, max_features, max_depth)
 
 def predict(tree: DecisionNode, X: pd.DataFrame):
