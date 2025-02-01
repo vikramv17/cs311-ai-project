@@ -33,7 +33,8 @@ Our random forest model’s performance varies across evaluation approaches. Usi
 
 Analyzing our prediction accuracy revealed that 44.8% of predictions correctly matched the label, and an additional 32.5% were off by just one category, meaning that 77.3% of all predictions were either correct or only one category away from the true label. Our proximity score metric, based on a normalized mean absolute error, achieved a score of 0.778. This distribution is visualized in Figure 1 and shows a clear concentration of correct or near-correct predictions, with the frequency decreasing for inaccuracies. 
 
-![Chart of the distribution of prediction differences](old_code/chart.png)
+![Chart of the prediction proximity](old_code/chart.png)
+
 Figure 1: Chart of the distribution of the prediction differences from the correct label. Demonstrates that the vast majority of the predictions are correct or close.
 
 Our random forest model’s ability to predict song enjoyment within one category 77.3% of the time is noteworthy, given that we only utilized audio features for prediction. Such predictive ability suggests that, although music preference is subjective and complex, audio characteristics play a substantial role in determining song enjoyment.
